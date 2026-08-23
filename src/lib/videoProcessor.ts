@@ -1,633 +1,740 @@
-import { fetchFile } from "@ffmpeg/util";
+import {
+  FFmpeg,
+} from "@ffmpeg/ffmpeg";
 
-import { getFFmpeg } from "./ffmpeg";
+import {
+  fetchFile,
+} from "@ffmpeg/util";
 
-import type { OverlayPosition } from "@/types/geotag";
-import type { VideoItem } from "@/types/video";
+import type {
+  VideoItem,
+} from "@/types/video";
 
-/* ============================================================
-   OVERLAY POSITION
-============================================================ */
+import {
+  computeTiming,
+} from "./videoProcessor";
 
-export function overlayXY(
-  position: OverlayPosition,
-  margin: number,
-): {
-  x: string;
-  y: string;
-} {
-  const m = String(Math.max(0, margin));
+/*
+ * -------------------------------------------------------
+ * FFmpeg singleton
+ * -------------------------------------------------------
+ */
 
-  switch (position) {
-    case "top-left":
-      return {
-        x: m,
-        y: m,
-      };
+let ffmpeg: FFmpeg | null = null;
 
-    case "top-right":
-      return {
-        x: `main_w-overlay_w-${m}`,
-        y: m,
-      };
+let ffmpegLoading:
+  Promise<FFmpeg> | null = null;
 
-    case "bottom-left":
-      return {
-        x: m,
-        y: `main_h-overlay_h-${m}`,
-      };
+/*
+ * -------------------------------------------------------
+ * LOAD FFmpeg
+ * -------------------------------------------------------
+ */
 
-    case "bottom-right":
-      return {
-        x: `main_w-overlay_w-${m}`,
-        y: `main_h-overlay_h-${m}`,
-      };
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (ffmpeg) {
+    return ffmpeg;
+  }
 
-    case "bottom-center":
-    default:
-      return {
-        x: "(main_w-overlay_w)/2",
-        y: `main_h-overlay_h-${m}`,
-      };
+  if (ffmpegLoading) {
+    return ffmpegLoading;
+  }
+
+  ffmpegLoading = (async () => {
+    const instance = new FFmpeg();
+
+    instance.on(
+      "log",
+      ({ message }) => {
+        console.log(
+          "[FFmpeg]",
+          message,
+        );
+      },
+    );
+
+    instance.on(
+      "progress",
+      ({ progress }) => {
+        console.log(
+          "[FFmpeg] progress:",
+          Math.round(progress * 100),
+          "%",
+        );
+      },
+    );
+
+    console.log(
+      "[FFmpeg] Loading engine from:",
+      "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm",
+    );
+
+    await instance.load({
+      coreURL:
+        "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
+      wasmURL:
+        "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+    });
+
+    console.log(
+      "[FFmpeg] Engine loaded successfully.",
+    );
+
+    ffmpeg = instance;
+
+    return instance;
+  })();
+
+  try {
+    return await ffmpegLoading;
+  } finally {
+    ffmpegLoading = null;
   }
 }
 
-/* ============================================================
-   TIMING
-============================================================ */
+/*
+ * -------------------------------------------------------
+ * SAFE FILE NAME
+ * -------------------------------------------------------
+ */
 
-export function computeTiming(item: VideoItem) {
-  const duration = Math.max(
-    0.1,
-    Number(item.duration) || 0.1,
+function safeFileName(
+  name: string,
+): string {
+  return name.replace(
+    /[^a-zA-Z0-9._-]/g,
+    "_",
   );
-
-  const requestedStart = Number(
-    item.settings.trimStart,
-  );
-
-  const requestedEnd = Number(
-    item.settings.trimEnd,
-  );
-
-  const start = Math.max(
-    0,
-    Math.min(
-      Number.isFinite(requestedStart)
-        ? requestedStart
-        : 0,
-      duration - 0.1,
-    ),
-  );
-
-  const end = Math.max(
-    start + 0.1,
-    Math.min(
-      Number.isFinite(requestedEnd)
-        ? requestedEnd
-        : duration,
-      duration,
-    ),
-  );
-
-  const finalDuration = Math.max(
-    0.1,
-    end - start,
-  );
-
-  const percent = Math.max(
-    1,
-    Math.min(
-      100,
-      Number(item.settings.percent) || 1,
-    ),
-  );
-
-  const geotagDuration =
-    (finalDuration * percent) / 100;
-
-  const overlayStart =
-    item.settings.timing === "beginning"
-      ? 0
-      : Math.max(
-          0,
-          finalDuration - geotagDuration,
-        );
-
-  const overlayEnd = Math.min(
-    finalDuration,
-    overlayStart + geotagDuration,
-  );
-
-  return {
-    start,
-    end,
-    finalDuration,
-    geotagDuration,
-    overlayStart,
-    overlayEnd,
-  };
 }
 
-/* ============================================================
-   PROCESS ARGUMENTS
-============================================================ */
+/*
+ * -------------------------------------------------------
+ * OUTPUT NAME
+ *
+ * Example:
+ *
+ * video.mp4
+ *       ↓
+ * video_geotagged.mp4
+ *
+ * This preserves the original video name.
+ * -------------------------------------------------------
+ */
 
-export interface ProcessArgs {
-  item: VideoItem;
+function createOutputName(
+  originalName: string,
+): string {
+  const lastDot =
+    originalName.lastIndexOf(".");
 
-  /*
-   * This is the image uploaded by the user.
-   *
-   * We do NOT generate a geotag.
-   */
-  overlayPng: Blob;
+  if (lastDot === -1) {
+    return `${originalName}_geotagged.mp4`;
+  }
 
-  onProgress: (progress: number) => void;
+  const base =
+    originalName.substring(
+      0,
+      lastDot,
+    );
+
+  return `${base}_geotagged.mp4`;
 }
 
-/* ============================================================
-   HELPER
-============================================================ */
+/*
+ * -------------------------------------------------------
+ * EVEN NUMBER
+ *
+ * H.264 crop dimensions work more reliably
+ * when width/height are even.
+ * -------------------------------------------------------
+ */
 
-function even(value: number): number {
-  const rounded = Math.max(
-    2,
-    Math.round(value),
-  );
+function even(
+  value: number,
+): number {
+  const rounded =
+    Math.floor(value);
 
   return rounded % 2 === 0
     ? rounded
     : rounded - 1;
 }
 
-/* ============================================================
-   PROCESS VIDEO
-============================================================ */
+/*
+ * -------------------------------------------------------
+ * CLAMP
+ * -------------------------------------------------------
+ */
 
-export async function processVideo({
-  item,
-  overlayPng,
-  onProgress,
-}: ProcessArgs): Promise<Blob> {
-  const ffmpeg = await getFFmpeg();
+function clamp(
+  value: number,
+  min: number,
+  max: number,
+): number {
+  return Math.min(
+    max,
+    Math.max(min, value),
+  );
+}
 
+/*
+ * -------------------------------------------------------
+ * CROP PIXELS
+ *
+ * CropSelector gives normalized values:
+ *
+ * x = 0.2
+ * y = 0.1
+ * width = 0.6
+ * height = 0.7
+ *
+ * We convert them to actual pixels.
+ * -------------------------------------------------------
+ */
+
+function getCropPixels(
+  video: VideoItem,
+) {
   const {
-    start,
-    finalDuration,
-    overlayStart,
-    overlayEnd,
-  } = computeTiming(item);
+    crop,
+  } = video.settings;
 
-  if (!item.file) {
-    throw new Error(
-      "No video file was supplied.",
-    );
-  }
+  const sourceWidth =
+    video.width;
 
-  if (!overlayPng) {
-    throw new Error(
-      "No geotag image was supplied.",
-    );
-  }
+  const sourceHeight =
+    video.height;
 
-  if (
-    !item.width ||
-    !item.height ||
-    item.width <= 0 ||
-    item.height <= 0
-  ) {
-    throw new Error(
-      "Could not determine the video dimensions.",
-    );
-  }
+  let x = Math.round(
+    crop.x * sourceWidth,
+  );
 
-  /* ==========================================================
-     FILE NAMES
-  ========================================================== */
+  let y = Math.round(
+    crop.y * sourceHeight,
+  );
 
-  const extension =
-    item.file.name
-      .split(".")
-      .pop()
-      ?.toLowerCase() || "mp4";
+  let width = Math.round(
+    crop.width * sourceWidth,
+  );
 
-  const safeExtension =
-    /^[a-z0-9]+$/i.test(extension)
-      ? extension
-      : "mp4";
+  let height = Math.round(
+    crop.height * sourceHeight,
+  );
 
-  const inName =
-    `input_${item.id}.${safeExtension}`;
+  /*
+   * Keep crop inside the video.
+   */
 
-  const pngName =
-    `geotag_${item.id}.png`;
+  x = clamp(
+    x,
+    0,
+    sourceWidth - 2,
+  );
 
-  const outFile =
-    `output_${item.id}.mp4`;
+  y = clamp(
+    y,
+    0,
+    sourceHeight - 2,
+  );
 
-  /* ==========================================================
-     PROGRESS HANDLER
-  ========================================================== */
+  width = clamp(
+    width,
+    2,
+    sourceWidth - x,
+  );
 
-  const handler = ({
-    progress,
-  }: {
-    progress: number;
-  }) => {
-    const value = Number(progress);
+  height = clamp(
+    height,
+    2,
+    sourceHeight - y,
+  );
 
-    const percentage = Math.max(
+  /*
+   * H.264 prefers even dimensions.
+   */
+
+  width = even(width);
+
+  height = even(height);
+
+  /*
+   * Make sure we don't accidentally
+   * create zero dimensions.
+   */
+
+  width = Math.max(
+    2,
+    width,
+  );
+
+  height = Math.max(
+    2,
+    height,
+  );
+
+  return {
+    x,
+    y,
+    width,
+    height,
+  };
+}
+
+/*
+ * -------------------------------------------------------
+ * ESCAPE FFmpeg FILTER EXPRESSIONS
+ * -------------------------------------------------------
+ */
+
+function buildFilter(
+  video: VideoItem,
+  overlayWidth: number,
+  overlayHeight: number,
+  overlayInputIndex: number,
+) {
+  const timing =
+    computeTiming(video);
+
+  const crop =
+    getCropPixels(video);
+
+  /*
+   * Geotag visibility.
+   *
+   * computeTiming returns values relative
+   * to the trimmed video.
+   */
+
+  const overlayStart =
+    Math.max(
       0,
-      Math.min(
-        100,
-        Math.round(
-          value * 100,
-        ),
+      timing.overlayStart,
+    );
+
+  const overlayEnd =
+    Math.max(
+      overlayStart,
+      timing.overlayEnd,
+    );
+
+  /*
+   * Crop first.
+   *
+   * Then overlay geotag on the cropped video.
+   */
+
+  const cropFilter =
+    `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`;
+
+  /*
+   * Geotag dimensions.
+   */
+
+  const scaleFilter =
+    `[${overlayInputIndex}:v]` +
+    `scale=${overlayWidth}:${overlayHeight}:force_original_aspect_ratio=disable,` +
+    `format=rgba,` +
+    `colorchannelmixer=aa=${clamp(
+      video.settings.opacity,
+      0,
+      1,
+    )}` +
+    `[geotag]`;
+
+  /*
+   * Position.
+   */
+
+  let overlayX =
+    "(main_w-overlay_w)/2";
+
+  let overlayY =
+    "main_h-overlay_h";
+
+  switch (
+    video.settings.position
+  ) {
+    case "top-left":
+      overlayX = "0";
+      overlayY = "0";
+      break;
+
+    case "top-right":
+      overlayX =
+        "main_w-overlay_w";
+      overlayY = "0";
+      break;
+
+    case "bottom-left":
+      overlayX = "0";
+      overlayY =
+        "main_h-overlay_h";
+      break;
+
+    case "bottom-right":
+      overlayX =
+        "main_w-overlay_w";
+      overlayY =
+        "main_h-overlay_h";
+      break;
+
+    case "bottom-center":
+      overlayX =
+        "(main_w-overlay_w)/2";
+      overlayY =
+        "main_h-overlay_h";
+      break;
+  }
+
+  /*
+   * Final overlay filter.
+   */
+
+  const overlayFilter =
+    `[0:v][geotag]` +
+    `overlay=${overlayX}:${overlayY}` +
+    `:enable='between(t,${overlayStart.toFixed(
+      3,
+    )},${overlayEnd.toFixed(3)})'` +
+    `:eof_action=repeat` +
+    `:format=auto` +
+    `[video]`;
+
+  return {
+    cropFilter,
+    scaleFilter,
+    overlayFilter,
+    filterComplex:
+      `[0:v]${cropFilter}[cropped];` +
+      scaleFilter.replace(
+        `[${overlayInputIndex}:v]`,
+        `[${overlayInputIndex}:v]`,
+      ) +
+      ";" +
+      `[cropped][geotag]` +
+      `overlay=${overlayX}:${overlayY}` +
+      `:enable='between(t,${overlayStart.toFixed(
+        3,
+      )},${overlayEnd.toFixed(3)})'` +
+      `:eof_action=repeat` +
+      `:format=auto` +
+      `[video]`,
+  };
+}
+
+/*
+ * -------------------------------------------------------
+ * MAIN VIDEO PROCESSOR
+ * -------------------------------------------------------
+ */
+
+export async function processVideo(
+  item: VideoItem,
+  overlayBlob: Blob,
+  onProgress?: (
+    progress: number,
+  ) => void,
+): Promise<{
+  blob: Blob;
+  name: string;
+}> {
+  const engine =
+    await getFFmpeg();
+
+  /*
+   * Unique filenames.
+   */
+
+  const timestamp =
+    Date.now();
+
+  const baseName =
+    safeFileName(
+      item.name.replace(
+        /\.[^/.]+$/,
+        "",
       ),
     );
 
-    onProgress(percentage);
-  };
+  const inputName =
+    `input_${timestamp}_${baseName}.mp4`;
 
-  ffmpeg.on(
+  const overlayName =
+    `geotag_${timestamp}_${baseName}.png`;
+
+  const outputName =
+    createOutputName(
+      item.name,
+    );
+
+  const outputFile =
+    `output_${timestamp}_${baseName}.mp4`;
+
+  /*
+   * Write files into FFmpeg.
+   */
+
+  await engine.writeFile(
+    inputName,
+    await fetchFile(item.file),
+  );
+
+  await engine.writeFile(
+    overlayName,
+    await fetchFile(
+      overlayBlob,
+    ),
+  );
+
+  /*
+   * Calculate crop.
+   */
+
+  const crop =
+    getCropPixels(item);
+
+  /*
+   * Calculate final video size.
+   *
+   * IMPORTANT:
+   * Geotag width/height are based on
+   * the CROPPED video.
+   */
+
+  const outputWidth =
+    crop.width;
+
+  const outputHeight =
+    crop.height;
+
+  let geotagWidth =
+    Math.round(
+      outputWidth *
+        item.settings.scale,
+    );
+
+  let geotagHeight =
+    Math.round(
+      outputHeight *
+        item.settings.heightScale,
+    );
+
+  /*
+   * Keep dimensions valid.
+   */
+
+  geotagWidth =
+    Math.max(
+      2,
+      even(geotagWidth),
+    );
+
+  geotagHeight =
+    Math.max(
+      2,
+      even(geotagHeight),
+    );
+
+  /*
+   * Build filters.
+   */
+
+  const {
+    filterComplex,
+  } = buildFilter(
+    item,
+    geotagWidth,
+    geotagHeight,
+    1,
+  );
+
+  console.log(
+    "[FFmpeg] Crop:",
+    crop,
+  );
+
+  console.log(
+    "[FFmpeg] Filter:",
+    filterComplex,
+  );
+
+  /*
+   * ---------------------------------------------------
+   * ARGUMENTS
+   * ---------------------------------------------------
+   */
+
+  const args: string[] = [
+    "-ss",
+    item.settings.trimStart.toFixed(
+      3,
+    ),
+
+    "-i",
+    inputName,
+
+    "-loop",
+    "1",
+
+    "-i",
+    overlayName,
+
+    "-filter_complex",
+    filterComplex,
+
+    "-map",
+    "[video]",
+
+    "-map",
+    "0:a?",
+
+    "-t",
+    computeTiming(
+      item,
+    ).finalDuration.toFixed(
+      3,
+    ),
+
+    "-c:v",
+    "libx264",
+
+    "-preset",
+    "ultrafast",
+
+    "-crf",
+    "26",
+
+    "-pix_fmt",
+    "yuv420p",
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "128k",
+
+    "-movflags",
+    "+faststart",
+
+    outputFile,
+  ];
+
+  console.log(
+    "[FFmpeg] Arguments:",
+    args,
+  );
+
+  /*
+   * Progress.
+   */
+
+  const progressHandler =
+    ({
+      progress,
+    }: {
+      progress: number;
+    }) => {
+      onProgress?.(
+        Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              progress * 100,
+            ),
+          ),
+        ),
+      );
+    };
+
+  engine.on(
     "progress",
-    handler,
+    progressHandler,
   );
 
   try {
-    /* ========================================================
-       WRITE VIDEO
-    ======================================================== */
+    /*
+     * Execute FFmpeg.
+     */
 
-    await ffmpeg.writeFile(
-      inName,
-      await fetchFile(item.file),
-    );
-
-    /* ========================================================
-       WRITE USER'S GEOTAG IMAGE
-
-       IMPORTANT:
-       The uploaded image is used exactly as supplied.
-       No geotag is generated here.
-    ======================================================== */
-
-    await ffmpeg.writeFile(
-      pngName,
-      await fetchFile(overlayPng),
-    );
-
-    /* ========================================================
-       VIDEO DIMENSIONS
-    ======================================================== */
-
-    const videoWidth = Math.max(
-      2,
-      Number(item.width),
-    );
-
-    const videoHeight = Math.max(
-      2,
-      Number(item.height),
-    );
-
-    /* ========================================================
-       USER WIDTH
-
-       scale = 0.5
-       => 50% video width
-
-       scale = 1
-       => 100% video width
-    ======================================================== */
-
-    const widthScale = Math.max(
-      0.01,
-      Math.min(
-        1,
-        Number(item.settings.scale) || 0.9,
-      ),
-    );
-
-    /* ========================================================
-       USER HEIGHT
-
-       heightScale = 0.2
-       => 20% video height
-
-       heightScale = 0.5
-       => 50%
-
-       heightScale = 1
-       => 100%
-    ======================================================== */
-
-    const heightScale = Math.max(
-      0.01,
-      Math.min(
-        1,
-        Number(
-          item.settings.heightScale,
-        ) || 0.2,
-      ),
-    );
-
-    /* ========================================================
-       IMPORTANT FIX
-
-       DO NOT USE:
-
-       main_w
-       main_h
-
-       inside scale.
-
-       Instead calculate the actual pixel dimensions
-       in JavaScript.
-
-       Example:
-
-       Video = 1920 × 1080
-
-       Width = 90%
-       => 1728
-
-       Height = 20%
-       => 216
-    ======================================================== */
-
-    const overlayWidth = even(
-      videoWidth * widthScale,
-    );
-
-    const overlayHeight = even(
-      videoHeight * heightScale,
-    );
-
-    /* ========================================================
-       POSITION
-    ======================================================== */
-
-    const {
-      x,
-      y,
-    } = overlayXY(
-      item.settings.position,
-      0,
-    );
-
-    /* ========================================================
-       OPACITY
-    ======================================================== */
-
-    const opacity = Math.max(
-      0,
-      Math.min(
-        1,
-        Number(item.settings.opacity) || 1,
-      ),
-    );
-
-    /* ========================================================
-       FILTER
-
-       Input 0 = video
-
-       Input 1 = uploaded geotag image
-
-       The geotag image is resized to the exact dimensions
-       selected by the user.
-
-       Then it is overlaid on the video.
-    ======================================================== */
-
-    const filter =
-      `[1:v]` +
-      `scale=${overlayWidth}:${overlayHeight}:force_original_aspect_ratio=disable,` +
-      `format=rgba,` +
-      `colorchannelmixer=aa=${opacity}` +
-      `[geotag];` +
-
-      `[0:v][geotag]` +
-      `overlay=${x}:${y}` +
-      `:enable='between(t,${overlayStart.toFixed(
-        3,
-      )},${overlayEnd.toFixed(
-        3,
-      )})'` +
-      `:eof_action=repeat` +
-      `:format=auto` +
-      `[video]`;
-
-    console.log(
-      "FFmpeg filter:",
-      filter,
-    );
-
-    /* ========================================================
-       FFMPEG ARGUMENTS
-    ======================================================== */
-
-    const args = [
-      /*
-       * Trim start
-       */
-      "-ss",
-      start.toFixed(3),
-
-      /*
-       * Video
-       */
-      "-i",
-      inName,
-
-      /*
-       * Loop uploaded geotag image
-       */
-      "-loop",
-      "1",
-
-      /*
-       * Uploaded geotag
-       */
-      "-i",
-      pngName,
-
-      /*
-       * Video + geotag filter
-       */
-      "-filter_complex",
-      filter,
-
-      /*
-       * Video output
-       */
-      "-map",
-      "[video]",
-
-      /*
-       * Keep original audio if available
-       */
-      "-map",
-      "0:a?",
-
-      /*
-       * Final duration
-       */
-      "-t",
-      finalDuration.toFixed(3),
-
-      /*
-       * Video encoder
-       */
-      "-c:v",
-      "libx264",
-
-      /*
-       * Fast browser encoding
-       */
-      "-preset",
-      "ultrafast",
-
-      /*
-       * Quality
-       */
-      "-crf",
-      "26",
-
-      /*
-       * Browser-compatible pixel format
-       */
-      "-pix_fmt",
-      "yuv420p",
-
-      /*
-       * Audio
-       */
-      "-c:a",
-      "aac",
-
-      "-b:a",
-      "128k",
-
-      /*
-       * Better MP4 compatibility
-       */
-      "-movflags",
-      "+faststart",
-
-      /*
-       * Output
-       */
-      outFile,
-    ];
-
-    console.log(
-      "FFmpeg arguments:",
-      args,
-    );
-
-    /* ========================================================
-       EXECUTE
-    ======================================================== */
-
-    const code =
-      await ffmpeg.exec(args);
-
-    if (code !== 0) {
-      console.error(
-        "FFmpeg exited with code:",
-        code,
+    const exitCode =
+      await engine.exec(
+        args,
       );
 
+    if (exitCode !== 0) {
       throw new Error(
-        `FFmpeg exited with code ${code}. Check the browser console for the FFmpeg log.`,
+        `FFmpeg exited with code ${exitCode}. Check the browser console for the FFmpeg log.`,
       );
     }
 
-    /* ========================================================
-       READ OUTPUT
-    ======================================================== */
+    /*
+     * Read result.
+     */
 
     const output =
-      await ffmpeg.readFile(
-        outFile,
+      await engine.readFile(
+        outputFile,
       );
 
-    /*
-     * FFmpeg may return Uint8Array or string.
-     */
-
     if (
-      typeof output === "string"
+      typeof output ===
+      "string"
     ) {
       throw new Error(
-        "FFmpeg returned invalid video data.",
+        "FFmpeg returned an invalid output file.",
       );
     }
 
-    const copy =
-      new Uint8Array(output);
+    const outputBytes =
+      output instanceof Uint8Array
+        ? new Uint8Array(
+            output,
+          )
+        : new Uint8Array(
+            output as ArrayBuffer,
+          );
 
-    return new Blob(
-      [copy],
-      {
-        type: "video/mp4",
-      },
-    );
-  } catch (error) {
-    console.error(
-      "Video processing error:",
-      error,
-    );
+    const blob =
+      new Blob(
+        [outputBytes],
+        {
+          type: "video/mp4",
+        },
+      );
 
+    onProgress?.(100);
+
+    return {
+      blob,
+      name: outputName,
+    };
+  } finally {
     /*
-     * Preserve the useful FFmpeg error.
+     * Remove temporary files.
      */
 
-    if (
-      error instanceof Error &&
-      error.message.startsWith(
-        "FFmpeg exited with code",
-      )
-    ) {
-      throw error;
-    }
-
-    throw new Error(
-      error instanceof Error
-        ? error.message
-        : "Unable to process this video in your browser. Please upload an MP4 video and try again.",
-    );
-  } finally {
-    /* ========================================================
-       REMOVE PROGRESS LISTENER
-    ======================================================== */
-
-    ffmpeg.off(
+    engine.off(
       "progress",
-      handler,
+      progressHandler,
     );
 
-    /* ========================================================
-       CLEAN FFMPEG FILES
-    ======================================================== */
+    try {
+      await engine.deleteFile(
+        inputName,
+      );
+    } catch {}
 
-    for (const file of [
-      inName,
-      pngName,
-      outFile,
-    ]) {
-      try {
-        await ffmpeg.deleteFile(
-          file,
-        );
-      } catch {
-        /*
-         * Ignore cleanup errors.
-         */
-      }
-    }
+    try {
+      await engine.deleteFile(
+        overlayName,
+      );
+    } catch {}
+
+    try {
+      await engine.deleteFile(
+        outputFile,
+      );
+    } catch {}
   }
 }
