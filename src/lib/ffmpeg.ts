@@ -9,38 +9,83 @@ const CORE_SOURCES = [
   "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm",
 ];
 
-export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
-  if (ffmpeg) return ffmpeg;
-  if (loading) return loading;
+export async function getFFmpeg(
+  onLog?: (message: string) => void,
+): Promise<FFmpeg> {
+  if (ffmpeg) {
+    return ffmpeg;
+  }
+
+  if (loading) {
+    return loading;
+  }
 
   loading = (async () => {
     const instance = new FFmpeg();
-    instance.on("log", ({ message }) => onLog?.(message));
 
-    let lastError: unknown;
+    instance.on("log", ({ message }) => {
+      console.log("[FFmpeg]", message);
+      onLog?.(message);
+    });
 
-    for (const CORE_URL of CORE_SOURCES) {
+    let lastError: unknown = null;
+
+    for (const baseUrl of CORE_SOURCES) {
       try {
+        console.log(
+          `[FFmpeg] Loading engine from: ${baseUrl}`,
+        );
+
+        const coreURL = await toBlobURL(
+          `${baseUrl}/ffmpeg-core.js`,
+          "text/javascript",
+        );
+
+        const wasmURL = await toBlobURL(
+          `${baseUrl}/ffmpeg-core.wasm`,
+          "application/wasm",
+        );
+
         await instance.load({
-          coreURL: await toBlobURL(`${CORE_URL}/ffmpeg-core.js`, "text/javascript"),
-          wasmURL: await toBlobURL(`${CORE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+          coreURL,
+          wasmURL,
         });
+
+        console.log("[FFmpeg] Engine loaded successfully.");
+
         ffmpeg = instance;
+
         return instance;
-      } catch (err) {
-        console.error(`FFmpeg core load failed from ${CORE_URL}:`, err);
-        lastError = err;
+      } catch (error) {
+        console.error(
+          `[FFmpeg] Failed to load from ${baseUrl}`,
+          error,
+        );
+
+        lastError = error;
       }
     }
 
     loading = null;
-    const detail = lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(`Could not load the video engine (FFmpeg): ${detail}`);
+
+    const message =
+      lastError instanceof Error
+        ? lastError.message
+        : String(lastError);
+
+    throw new Error(
+      `Could not load FFmpeg. ${message}`,
+    );
   })();
 
-  return loading;
+  try {
+    return await loading;
+  } catch (error) {
+    loading = null;
+    throw error;
+  }
 }
 
-export function isFFmpegLoaded() {
+export function isFFmpegLoaded(): boolean {
   return ffmpeg !== null;
 }
