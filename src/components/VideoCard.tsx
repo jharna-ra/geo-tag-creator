@@ -4,42 +4,21 @@ import {
   useState,
 } from "react";
 
-import {
-  Button,
-} from "@/components/ui/button";
-
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { Slider } from "@/components/ui/slider";
 
-import {
-  Input,
-} from "@/components/ui/input";
-
-import {
-  Label,
-} from "@/components/ui/label";
-
-import {
-  Progress,
-} from "@/components/ui/progress";
-
-import {
-  Slider,
-} from "@/components/ui/slider";
-
-import {
-  CropSelector,
-} from "@/components/CropSelector";
+import { CropSelector } from "@/components/CropSelector";
 
 import {
   computeTiming,
 } from "@/lib/videoProcessor";
-
-import {
-  DEFAULT_CROP,
-} from "@/lib/crop";
 
 import {
   downloadBlob,
@@ -51,9 +30,14 @@ import type {
 
 import {
   fmtTime,
+  type CropRect,
   type VideoItem,
   type VideoSettings,
 } from "@/types/video";
+
+/* =========================================================
+   PROPS
+========================================================= */
 
 interface Props {
   item: VideoItem;
@@ -133,6 +117,36 @@ const POS_CLASS: Record<
 };
 
 /* =========================================================
+   FULL CROP
+========================================================= */
+
+const FULL_CROP: CropRect = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function isFullCrop(
+  crop: CropRect,
+) {
+  return (
+    Math.abs(crop.x) < 0.0001 &&
+    Math.abs(crop.y) < 0.0001 &&
+    Math.abs(
+      crop.width - 1,
+    ) < 0.0001 &&
+    Math.abs(
+      crop.height - 1,
+    ) < 0.0001
+  );
+}
+
+/* =========================================================
    VIDEO CARD
 ========================================================= */
 
@@ -144,27 +158,35 @@ export function VideoCard({
   onRemove,
   onApplyToAll,
 }: Props) {
-  const [
-    open,
-    setOpen,
-  ] = useState(
-    index === 0,
-  );
+  /* =======================================================
+     OPEN
+  ======================================================= */
+
+  const [open, setOpen] =
+    useState(index === 0);
+
+  /* =======================================================
+     VIDEO REF
+  ======================================================= */
 
   const videoRef =
     useRef<HTMLVideoElement>(
       null,
     );
 
-  const [
-    showOverlay,
-    setShowOverlay,
-  ] = useState(true);
+  /* =======================================================
+     CROP MODE
+  ======================================================= */
 
-  const [
-    cropEnabled,
-    setCropEnabled,
-  ] = useState(false);
+  const [cropEnabled, setCropEnabled] =
+    useState(false);
+
+  /* =======================================================
+     OVERLAY VISIBILITY
+  ======================================================= */
+
+  const [showOverlay, setShowOverlay] =
+    useState(true);
 
   /* =======================================================
      TIMING
@@ -177,17 +199,16 @@ export function VideoCard({
      CROP
   ======================================================= */
 
-  const crop =
+  const crop: CropRect =
     item.settings.crop ??
-    DEFAULT_CROP;
+    FULL_CROP;
 
   /* =======================================================
      PERCENTAGES
   ======================================================= */
 
   const widthPercent =
-    item.settings.scale *
-    100;
+    item.settings.scale * 100;
 
   const heightPercent =
     item.settings.heightScale *
@@ -197,7 +218,7 @@ export function VideoCard({
     item.settings.percent;
 
   /* =======================================================
-     VIDEO PLAYBACK
+     PLAYBACK / GEOTAG TIMING
   ======================================================= */
 
   useEffect(() => {
@@ -226,22 +247,17 @@ export function VideoCard({
           video.currentTime =
             timing.start;
 
+          setShowOverlay(
+            timing.timing ===
+              "beginning",
+          );
+
           return;
         }
-
-        /*
-         * Time relative to trimmed
-         * video.
-         */
 
         const relative =
           current -
           timing.start;
-
-        /*
-         * Show geotag only during
-         * selected timing.
-         */
 
         const visible =
           relative >=
@@ -359,23 +375,75 @@ export function VideoCard({
     onUpdate(
       item.id,
       {
-        percent:
-          safe,
+        percent: safe,
       },
     );
   };
 
   /* =======================================================
-     CROP
+     CROP UPDATE
   ======================================================= */
 
   const updateCrop = (
-    newCrop: typeof crop,
+    newCrop: CropRect,
   ) => {
+    /*
+     * Extra safety.
+     */
+
+    const safe: CropRect = {
+      x: Math.max(
+        0,
+        Math.min(
+          1,
+          newCrop.x,
+        ),
+      ),
+
+      y: Math.max(
+        0,
+        Math.min(
+          1,
+          newCrop.y,
+        ),
+      ),
+
+      width: Math.max(
+        0.01,
+        Math.min(
+          1,
+          newCrop.width,
+        ),
+      ),
+
+      height: Math.max(
+        0.01,
+        Math.min(
+          1,
+          newCrop.height,
+        ),
+      ),
+    };
+
+    /*
+     * Make sure crop does not
+     * go outside video.
+     */
+
+    safe.x = Math.min(
+      safe.x,
+      1 - safe.width,
+    );
+
+    safe.y = Math.min(
+      safe.y,
+      1 - safe.height,
+    );
+
     onUpdate(
       item.id,
       {
-        crop: newCrop,
+        crop: safe,
       },
     );
   };
@@ -389,18 +457,99 @@ export function VideoCard({
       item.id,
       {
         crop: {
-          ...DEFAULT_CROP,
+          ...FULL_CROP,
         },
       },
+    );
+
+    setCropEnabled(
+      false,
     );
   };
 
   /* =======================================================
-     RETURN
+     FINISH CROP
+  ======================================================= */
+
+  const finishCrop = () => {
+    setCropEnabled(
+      false,
+    );
+
+    /*
+     * Force video back to
+     * beginning so the new
+     * crop preview is visible.
+     */
+
+    if (videoRef.current) {
+      videoRef.current.pause();
+
+      videoRef.current.currentTime =
+        Math.max(
+          0,
+          item.settings
+            .trimStart,
+        );
+    }
+  };
+
+  /* =======================================================
+     CROP PREVIEW
+  ======================================================= */
+
+  /*
+   * The important part:
+   *
+   * Instead of showing the complete
+   * video after Finish Crop, we
+   * create a viewport exactly the
+   * size of the selected crop.
+   *
+   * The original video is enlarged
+   * inside that viewport.
+   */
+
+  const cropPreviewStyle =
+    !isFullCrop(crop)
+      ? {
+          aspectRatio:
+            `${crop.width} / ${crop.height}`,
+        }
+      : undefined;
+
+  const croppedVideoStyle =
+    !isFullCrop(crop)
+      ? {
+          position:
+            "absolute" as const,
+
+          left:
+            `${-crop.x * (100 / crop.width)}%`,
+
+          top:
+            `${-crop.y * (100 / crop.height)}%`,
+
+          width:
+            `${100 / crop.width}%`,
+
+          height:
+            `${100 / crop.height}%`,
+
+          maxWidth: "none",
+
+          objectFit:
+            "fill" as const,
+        }
+      : undefined;
+
+  /* =======================================================
+     RENDER
   ======================================================= */
 
   return (
     <Card className="overflow-hidden">
+
       <CardContent className="space-y-4 pt-6">
 
         {/* =================================================
@@ -425,6 +574,29 @@ export function VideoCard({
               {item.width}
               {" × "}
               {item.height}
+
+              {!isFullCrop(
+                crop,
+              ) && (
+                <>
+                  {" · Cropped "}
+                  {(
+                    crop.width *
+                    100
+                  ).toFixed(
+                    1,
+                  )}
+                  %
+                  {" × "}
+                  {(
+                    crop.height *
+                    100
+                  ).toFixed(
+                    1,
+                  )}
+                  %
+                </>
+              )}
             </p>
 
           </div>
@@ -436,7 +608,7 @@ export function VideoCard({
               variant="outline"
               onClick={() =>
                 setOpen(
-                  value =>
+                  (value) =>
                     !value,
                 )
               }
@@ -459,6 +631,7 @@ export function VideoCard({
             </Button>
 
           </div>
+
         </div>
 
         {/* =================================================
@@ -512,63 +685,63 @@ export function VideoCard({
         {item.status ===
           "done" &&
           item.outputUrl && (
-          <div className="space-y-3 rounded-md border p-3">
+            <div className="space-y-3 rounded-md border p-3">
 
-            <div>
+              <div>
 
-              <p className="text-sm font-medium">
-                ✓{" "}
-                {item.outputName}
-              </p>
+                <p className="text-sm font-medium">
+                  ✓{" "}
+                  {item.outputName}
+                </p>
 
-              <p className="mt-1 text-xs text-muted-foreground">
-                Original{" "}
-                {fmtTime(
-                  item.duration,
-                )}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Original{" "}
+                  {fmtTime(
+                    item.duration,
+                  )}
 
-                {" · "}
+                  {" · "}
 
-                Final{" "}
-                {fmtTime(
-                  timing.finalDuration,
-                )}
+                  Final{" "}
+                  {fmtTime(
+                    timing.finalDuration,
+                  )}
 
-                {" · "}
+                  {" · "}
 
-                Geotag{" "}
-                {durationPercent}%
-              </p>
+                  Geotag{" "}
+                  {durationPercent}%
+                </p>
+
+              </div>
+
+              <video
+                src={
+                  item.outputUrl
+                }
+                controls
+                className="w-full rounded-md bg-black"
+              />
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (
+                    item.outputBlob &&
+                    item.outputName
+                  ) {
+                    downloadBlob(
+                      item.outputBlob,
+                      item.outputName,
+                    );
+                  }
+                }}
+              >
+                Download
+              </Button>
 
             </div>
-
-            <video
-              src={
-                item.outputUrl
-              }
-              controls
-              className="w-full rounded-md bg-black"
-            />
-
-            <Button
-              size="sm"
-              onClick={() => {
-                if (
-                  item.outputBlob
-                ) {
-                  downloadBlob(
-                    item.outputBlob,
-                    item.outputName ??
-                      item.name,
-                  );
-                }
-              }}
-            >
-              Download
-            </Button>
-
-          </div>
-        )}
+          )}
 
         {/* =================================================
             EDITOR
@@ -587,18 +760,30 @@ export function VideoCard({
                 Video Preview
               </Label>
 
-              <div className="relative overflow-hidden rounded-lg bg-black">
+              {/*
+               * FULL VIDEO
+               *
+               * During crop editing:
+               * show normal video.
+               */}
 
-                <video
-                  ref={videoRef}
-                  src={item.url}
-                  controls
-                  preload="metadata"
-                  className="block w-full"
-                />
+              {cropEnabled ? (
+                <div className="relative overflow-hidden rounded-lg bg-black">
 
-                {/* CROP */}
-                {cropEnabled && (
+                  <video
+                    ref={
+                      videoRef
+                    }
+                    src={
+                      item.url
+                    }
+                    controls
+                    preload="metadata"
+                    className="block w-full"
+                  />
+
+                  {/* CROP SELECTOR */}
+
                   <CropSelector
                     videoWidth={
                       item.width
@@ -606,45 +791,91 @@ export function VideoCard({
                     videoHeight={
                       item.height
                     }
-                    crop={crop}
+                    crop={
+                      crop
+                    }
                     onChange={
                       updateCrop
                     }
                   />
-                )}
 
-                {/* GEOTAG */}
-                {!cropEnabled &&
-                  overlayUrl &&
-                  showOverlay && (
-                  <img
-                    src={
-                      overlayUrl
+                </div>
+              ) : (
+                /*
+                 * FINISHED CROP PREVIEW
+                 */
+
+                <div
+                  className="relative mx-auto overflow-hidden rounded-lg bg-black"
+                  style={
+                    cropPreviewStyle
+                  }
+                >
+
+                  <video
+                    ref={
+                      videoRef
                     }
-                    alt="Geotag overlay"
-                    className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
-                    style={{
-                      width:
-                        `${widthPercent}%`,
-
-                      height:
-                        `${heightPercent}%`,
-
-                      objectFit:
-                        "fill",
-
-                      opacity:
-                        item.settings
-                          .opacity,
-                    }}
+                    src={
+                      item.url
+                    }
+                    controls
+                    preload="metadata"
+                    className={
+                      isFullCrop(
+                        crop,
+                      )
+                        ? "block w-full"
+                        : "block"
+                    }
+                    style={
+                      croppedVideoStyle
+                    }
                   />
-                )}
 
-              </div>
+                  {/* =====================================
+                      GEOTAG ON CROPPED PREVIEW
+                  ===================================== */}
+
+                  {overlayUrl &&
+                    showOverlay && (
+                      <img
+                        src={
+                          overlayUrl
+                        }
+                        alt="Geotag overlay"
+                        className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
+                        style={{
+                          width: `${widthPercent}%`,
+                          height: `${heightPercent}%`,
+                          objectFit:
+                            "fill",
+                          opacity:
+                            item.settings
+                              .opacity,
+                        }}
+                      />
+                    )}
+
+                </div>
+              )}
+
+              {!isFullCrop(
+                crop,
+              ) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Preview shows only the
+                  selected crop area.
+                  The same crop will be
+                  permanently applied to
+                  the exported video.
+                </p>
+              )}
+
             </div>
 
             {/* =============================================
-                CROP
+                CROP CONTROLS
             ============================================= */}
 
             <div className="space-y-4 rounded-lg border p-4">
@@ -660,33 +891,34 @@ export function VideoCard({
                   <p className="mt-1 text-xs text-muted-foreground">
                     Draw a rectangle over
                     the video. Only the
-                    selected area will
-                    remain in the final
-                    video.
+                    selected area will remain.
                   </p>
 
                 </div>
 
                 <div className="flex gap-2">
 
-                  <Button
-                    size="sm"
-                    variant={
-                      cropEnabled
-                        ? "default"
-                        : "outline"
-                    }
-                    onClick={() =>
-                      setCropEnabled(
-                        value =>
-                          !value,
-                      )
-                    }
-                  >
-                    {cropEnabled
-                      ? "Finish Crop"
-                      : "Crop Video"}
-                  </Button>
+                  {!cropEnabled ? (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        setCropEnabled(
+                          true,
+                        )
+                      }
+                    >
+                      Crop Video
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={
+                        finishCrop
+                      }
+                    >
+                      Finish Crop
+                    </Button>
+                  )}
 
                   <Button
                     size="sm"
@@ -699,9 +931,10 @@ export function VideoCard({
                   </Button>
 
                 </div>
+
               </div>
 
-              {/* CROP INFO */}
+              {/* CROP VALUES */}
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 
@@ -773,11 +1006,29 @@ export function VideoCard({
 
               {cropEnabled && (
                 <p className="text-xs text-muted-foreground">
-                  Drag inside the rectangle
-                  to move it. Drag any
-                  white handle to resize it.
+                  Drag the white rectangle
+                  to move it. Drag the
+                  bottom-right handle to
+                  resize it.
                 </p>
               )}
+
+              {!cropEnabled &&
+                !isFullCrop(
+                  crop,
+                ) && (
+                  <div className="rounded-md bg-muted p-3 text-sm">
+                    <strong>
+                      Crop active
+                    </strong>
+
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      The exported video
+                      will contain only
+                      this selected region.
+                    </p>
+                  </div>
+                )}
 
             </div>
 
@@ -802,8 +1053,6 @@ export function VideoCard({
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-                {/* START */}
-
                 <div className="space-y-2">
 
                   <Label>
@@ -821,8 +1070,9 @@ export function VideoCard({
                       item.settings
                         .trimStart
                     }
-                    onChange={event => {
-
+                    onChange={(
+                      event,
+                    ) => {
                       const value =
                         Number(
                           event.target
@@ -860,8 +1110,6 @@ export function VideoCard({
 
                 </div>
 
-                {/* END */}
-
                 <div className="space-y-2">
 
                   <Label>
@@ -879,8 +1127,9 @@ export function VideoCard({
                       item.settings
                         .trimEnd
                     }
-                    onChange={event => {
-
+                    onChange={(
+                      event,
+                    ) => {
                       const value =
                         Number(
                           event.target
@@ -946,8 +1195,8 @@ export function VideoCard({
                   </Label>
 
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Percentage of the final
-                    video during which the
+                    Percentage of final
+                    video during which
                     geotag is displayed.
                   </p>
 
@@ -969,8 +1218,9 @@ export function VideoCard({
                   value={
                     durationPercent
                   }
-                  onChange={event => {
-
+                  onChange={(
+                    event,
+                  ) => {
                     const value =
                       Number(
                         event.target
@@ -1003,21 +1253,21 @@ export function VideoCard({
                 min={1}
                 max={100}
                 step={0.1}
-                onValueChange={
-                  values => {
-                    const value =
-                      values[0];
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
 
-                    if (
-                      value !==
-                      undefined
-                    ) {
-                      updateDuration(
-                        value,
-                      );
-                    }
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateDuration(
+                      value,
+                    );
                   }
-                }
+                }}
               />
 
               <p className="text-sm">
@@ -1132,8 +1382,9 @@ export function VideoCard({
                   value={
                     widthPercent
                   }
-                  onChange={event => {
-
+                  onChange={(
+                    event,
+                  ) => {
                     const value =
                       Number(
                         event.target
@@ -1166,22 +1417,21 @@ export function VideoCard({
                 min={0.1}
                 max={100}
                 step={0.1}
-                onValueChange={
-                  values => {
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
 
-                    const value =
-                      values[0];
-
-                    if (
-                      value !==
-                      undefined
-                    ) {
-                      updateWidth(
-                        value,
-                      );
-                    }
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateWidth(
+                      value,
+                    );
                   }
-                }
+                }}
               />
 
             </div>
@@ -1226,8 +1476,9 @@ export function VideoCard({
                   value={
                     heightPercent
                   }
-                  onChange={event => {
-
+                  onChange={(
+                    event,
+                  ) => {
                     const value =
                       Number(
                         event.target
@@ -1260,22 +1511,21 @@ export function VideoCard({
                 min={0.1}
                 max={100}
                 step={0.1}
-                onValueChange={
-                  values => {
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
 
-                    const value =
-                      values[0];
-
-                    if (
-                      value !==
-                      undefined
-                    ) {
-                      updateHeight(
-                        value,
-                      );
-                    }
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateHeight(
+                      value,
+                    );
                   }
-                }
+                }}
               />
 
             </div>
@@ -1293,7 +1543,7 @@ export function VideoCard({
               <div className="flex flex-wrap gap-2">
 
                 {POSITIONS.map(
-                  position => (
+                  (position) => (
                     <Button
                       key={
                         position.key
@@ -1359,27 +1609,26 @@ export function VideoCard({
                 min={1}
                 max={100}
                 step={1}
-                onValueChange={
-                  values => {
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
 
-                    const value =
-                      values[0];
-
-                    if (
-                      value !==
-                      undefined
-                    ) {
-                      onUpdate(
-                        item.id,
-                        {
-                          opacity:
-                            value /
-                            100,
-                        },
-                      );
-                    }
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    onUpdate(
+                      item.id,
+                      {
+                        opacity:
+                          value /
+                          100,
+                      },
+                    );
                   }
-                }
+                }}
               />
 
             </div>
@@ -1456,11 +1705,16 @@ export function VideoCard({
                   </p>
 
                   <p className="font-medium">
-                    {Math.round(
-                      crop.width *
-                        100,
-                    )}
-                    %
+                    {isFullCrop(
+                      crop,
+                    )
+                      ? "Full"
+                      : `${(
+                          crop.width *
+                          100
+                        ).toFixed(
+                          0,
+                        )}%`}
                   </p>
                 </div>
 
@@ -1469,7 +1723,7 @@ export function VideoCard({
             </div>
 
             {/* =============================================
-                APPLY TO ALL
+                APPLY ALL
             ============================================= */}
 
             <Button
