@@ -5,8 +5,8 @@ let ffmpeg: FFmpeg | null = null;
 let loading: Promise<FFmpeg> | null = null;
 
 const CORE_SOURCES = [
-  "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd",
-  "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd",
+  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm",
+  "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm",
 ];
 
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
