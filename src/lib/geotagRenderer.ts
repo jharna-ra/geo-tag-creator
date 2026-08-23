@@ -19,9 +19,12 @@ export function formatDateLine(data: GeotagData, opts: GeotagOptions): string {
 }
 
 export function headlineText(data: GeotagData): string {
+  // Line 1: district/city, state, country — falls back gracefully if geocoding
+  // didn't return some fields, so the geotag still renders instead of breaking.
   const parts = [data.city, data.state, data.country].filter(Boolean);
   const flag = flagEmoji(data.countryCode);
-  return `${parts.join(", ") || "Unknown location"}${flag ? " " + flag : ""}`;
+  const location = parts.length > 0 ? parts.join(", ") : (data.address || "Location");
+  return `${location}${flag ? " " + flag : ""}`;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -49,7 +52,9 @@ export interface RenderResult {
 
 /**
  * Draws the reference-style wide geotag banner:
- * left square map with red pin, right dark charcoal info panel.
+ * left square map with red pin, right gray info panel.
+ * Renders correctly whether or not geocoding successfully returned
+ * city/state/country — falls back to address-only display.
  */
 export async function renderGeotag(
   data: GeotagData,
@@ -68,14 +73,16 @@ export async function renderGeotag(
   ctx.save();
   ctx.clip();
 
-  // right charcoal panel
-  ctx.fillStyle = "#2b2f33";
+  // right info panel — matches reference's lighter neutral gray
+  ctx.fillStyle = "#4d4d4d";
   ctx.fillRect(0, 0, width, height);
 
   const mapW = Math.round(width * 0.225);
-  // left map
   const lat = data.latitude;
   const lon = data.longitude;
+
+  // Map renders whenever we have coordinates, regardless of whether
+  // reverse-geocoding (city/state/country lookup) succeeded or failed.
   if (lat != null && lon != null && isFinite(lat) && isFinite(lon)) {
     try {
       const map = await renderMapCanvas(lat, lon, Math.max(mapW, height), opts.mapType, 15);
@@ -89,12 +96,11 @@ export async function renderGeotag(
     ctx.fillRect(0, 0, mapW, height);
   }
 
-  // map attribution
+  // map attribution, bottom-left of map (matches reference)
   ctx.font = `${Math.round(height * 0.062)}px system-ui, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.8)";
-  ctx.textAlign = "right";
-  ctx.fillText(mapAttribution(opts.mapType), mapW - height * 0.05, height - height * 0.05);
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
   ctx.textAlign = "left";
+  ctx.fillText(mapAttribution(opts.mapType), height * 0.05, height - height * 0.05);
 
   // text block
   const padX = Math.round(width * 0.026);
@@ -105,6 +111,7 @@ export async function renderGeotag(
   ctx.fillStyle = "#ffffff";
   ctx.textBaseline = "middle";
 
+  // Line 1: district/city, state, country (larger, bold)
   const h1 = Math.round(height * 0.185);
   ctx.font = `700 ${h1}px system-ui, "Segoe UI", sans-serif`;
   ctx.fillText(fitText(ctx, headlineText(data), maxW), x, y);
@@ -113,6 +120,8 @@ export async function renderGeotag(
   const body = Math.round(height * 0.115);
   const lineGap = Math.round(height * 0.155);
 
+  // Line 2 onward: address, coordinates, date — each only shown if data exists,
+  // so the geotag never breaks or shows blank lines when a field is missing.
   const lines: string[] = [];
   if (opts.showAddress && data.address) lines.push(data.address);
   if (opts.showCoordinates && lat != null && lon != null)
@@ -130,7 +139,7 @@ export async function renderGeotag(
   if (extras.length) lines.push(extras.join("   •   "));
 
   ctx.font = `400 ${body}px system-ui, "Segoe UI", sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
   for (const line of lines) {
     ctx.fillText(fitText(ctx, line, maxW), x, y);
     y += lineGap;
