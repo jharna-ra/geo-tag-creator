@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,31 +11,30 @@ import { computeTiming } from "@/lib/videoProcessor";
 import { downloadBlob } from "@/lib/videoUtils";
 
 import type { OverlayPosition } from "@/types/geotag";
-
 import {
   fmtTime,
   type VideoItem,
   type VideoSettings,
 } from "@/types/video";
 
-const DURATION_PERCENTS = [
-  20,
-  30,
-  40,
-  50,
-  60,
-  75,
-  100,
-];
+interface Props {
+  item: VideoItem;
+  overlayUrl: string | null;
+  index: number;
 
-const WIDTH_PERCENTS = [
-  25,
-  50,
-  75,
-  90,
-  100,
-];
+  onUpdate: (
+    id: string,
+    patch: Partial<VideoSettings>,
+  ) => void;
 
+  onRemove: (id: string) => void;
+
+  onApplyToAll: (id: string) => void;
+}
+
+/*
+ * Available position buttons.
+ */
 const POSITIONS: {
   key: OverlayPosition;
   label: string;
@@ -62,40 +61,28 @@ const POSITIONS: {
   },
 ];
 
+/*
+ * Position classes for the preview.
+ */
 const POS_CLASS: Record<
   OverlayPosition,
   string
 > = {
   "top-left":
-    "left-[3%] top-[4%]",
+    "left-0 top-0",
 
   "top-right":
-    "right-[3%] top-[4%]",
+    "right-0 top-0",
 
   "bottom-left":
-    "left-[3%] bottom-[4%]",
+    "left-0 bottom-0",
 
   "bottom-right":
-    "right-[3%] bottom-[4%]",
+    "right-0 bottom-0",
 
   "bottom-center":
     "left-1/2 -translate-x-1/2 bottom-0",
 };
-
-interface Props {
-  item: VideoItem;
-  overlayUrl: string | null;
-  index: number;
-
-  onUpdate: (
-    id: string,
-    patch: Partial<VideoSettings>,
-  ) => void;
-
-  onRemove: (id: string) => void;
-
-  onApplyToAll: (id: string) => void;
-}
 
 export function VideoCard({
   item,
@@ -105,94 +92,203 @@ export function VideoCard({
   onRemove,
   onApplyToAll,
 }: Props) {
+  /*
+   * First video is open by default.
+   */
   const [open, setOpen] =
     useState(index === 0);
 
+  /*
+   * Controls whether the preview geotag
+   * is currently visible.
+   */
   const [showOverlay, setShowOverlay] =
     useState(true);
 
+  /*
+   * Video reference.
+   */
   const videoRef =
     useRef<HTMLVideoElement>(null);
 
-  const t = computeTiming(item);
+  /*
+   * Calculate timing information.
+   *
+   * percent controls duration only.
+   */
+  const timing =
+    computeTiming(item);
 
+  /*
+   * Percentage values used in UI.
+   */
+  const widthPercent = Math.round(
+    item.settings.scale * 100,
+  );
+
+  const heightPercent = Math.round(
+    item.settings.heightScale * 100,
+  );
+
+  /*
+   * Keep preview geotag synchronized
+   * with the video playback.
+   */
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!video) return;
+    if (!video) {
+      return;
+    }
 
-    const onTime = () => {
-      const relativeTime =
-        video.currentTime - t.start;
+    const handleTimeUpdate =
+      () => {
+        const current =
+          video.currentTime;
 
-      setShowOverlay(
-        relativeTime >= t.overlayStart &&
-          relativeTime <= t.overlayEnd,
-      );
+        /*
+         * Stop playback at the selected
+         * trim end.
+         */
+        if (
+          current >=
+          timing.end
+        ) {
+          video.pause();
 
-      if (video.currentTime > t.end) {
-        video.currentTime = t.start;
-      }
-    };
+          video.currentTime =
+            timing.start;
+        }
+
+        /*
+         * Current time relative to
+         * trimmed video.
+         */
+        const relativeTime =
+          current -
+          timing.start;
+
+        /*
+         * Show geotag only during the
+         * selected duration percentage.
+         */
+        const visible =
+          relativeTime >=
+            timing.overlayStart &&
+          relativeTime <=
+            timing.overlayEnd;
+
+        setShowOverlay(visible);
+      };
 
     video.addEventListener(
       "timeupdate",
-      onTime,
+      handleTimeUpdate,
     );
 
     return () => {
       video.removeEventListener(
         "timeupdate",
-        onTime,
+        handleTimeUpdate,
       );
     };
   }, [
-    t.start,
-    t.end,
-    t.overlayStart,
-    t.overlayEnd,
+    timing.start,
+    timing.end,
+    timing.overlayStart,
+    timing.overlayEnd,
   ]);
 
   /*
-   * scale is stored as a fraction:
-   *
-   * 0.25 = 25%
-   * 0.50 = 50%
-   * 0.75 = 75%
-   * 1.00 = 100%
+   * Update width safely.
    */
-  const widthPercent =
-    Math.round(
-      item.settings.scale * 100,
-    );
+  const updateWidth = (
+    value: number,
+  ) => {
+    const clamped =
+      Math.min(
+        100,
+        Math.max(10, value),
+      );
+
+    onUpdate(item.id, {
+      scale: clamped / 100,
+    });
+  };
+
+  /*
+   * Update height safely.
+   */
+  const updateHeight = (
+    value: number,
+  ) => {
+    const clamped =
+      Math.min(
+        100,
+        Math.max(5, value),
+      );
+
+    onUpdate(item.id, {
+      heightScale:
+        clamped / 100,
+    });
+  };
+
+  /*
+   * Update duration percentage safely.
+   */
+  const updateDurationPercent = (
+    value: number,
+  ) => {
+    const clamped =
+      Math.min(
+        100,
+        Math.max(1, value),
+      );
+
+    onUpdate(item.id, {
+      percent: clamped,
+    });
+  };
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardContent className="space-y-4 pt-6">
 
-        {/* Header */}
+        {/* ================================================== */}
+        {/* HEADER */}
+        {/* ================================================== */}
+
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-medium">
+
+          <div className="min-w-0">
+            <p className="truncate font-medium">
               {item.name}
             </p>
 
             <p className="text-sm text-muted-foreground">
               {fmtTime(item.duration)}
               {" · "}
-              {item.width} × {item.height}
+              {item.width} ×{" "}
+              {item.height}
             </p>
           </div>
 
           <div className="flex gap-2">
+
             <Button
               size="sm"
               variant="outline"
               onClick={() =>
-                setOpen((o) => !o)
+                setOpen(
+                  (value) =>
+                    !value,
+                )
               }
             >
-              {open ? "Close" : "Edit"}
+              {open
+                ? "Close"
+                : "Edit"}
             </Button>
 
             <Button
@@ -204,389 +300,501 @@ export function VideoCard({
             >
               Remove
             </Button>
+
           </div>
         </div>
 
-        {/* Processing */}
+        {/* ================================================== */}
+        {/* PROCESSING */}
+        {/* ================================================== */}
+
         {item.status ===
           "processing" && (
-          <div className="space-y-1">
+          <div className="space-y-2">
+
             <Progress
-              value={item.progress}
+              value={
+                item.progress
+              }
             />
 
             <p className="text-xs text-muted-foreground">
               Processing…{" "}
               {item.progress}%
             </p>
+
           </div>
         )}
 
-        {/* Error */}
+        {/* ================================================== */}
+        {/* ERROR */}
+        {/* ================================================== */}
+
         {item.status === "error" && (
-          <p className="text-sm text-destructive">
-            {item.error}
-          </p>
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+
+            <p className="text-sm font-medium text-destructive">
+              Processing failed
+            </p>
+
+            {item.error && (
+              <p className="mt-1 text-xs text-destructive/80">
+                {item.error}
+              </p>
+            )}
+
+          </div>
         )}
 
-        {/* Finished */}
+        {/* ================================================== */}
+        {/* COMPLETED VIDEO */}
+        {/* ================================================== */}
+
         {item.status === "done" &&
           item.outputUrl && (
-            <div className="space-y-2 rounded-md border p-3">
-              <p className="text-sm font-medium">
-                ✓ {item.outputName}
-              </p>
+            <div className="space-y-3 rounded-md border p-3">
 
-              <p className="text-xs text-muted-foreground">
-                Original{" "}
-                {fmtTime(item.duration)}
-                {" · "}
-                Final{" "}
-                {fmtTime(
-                  t.finalDuration,
-                )}
-                {" · "}
-                Geotag Duration{" "}
-                {item.settings.percent}%
-                {" · "}
-                Geotag Width{" "}
-                {widthPercent}%
-              </p>
+              <div>
+                <p className="text-sm font-medium">
+                  ✓{" "}
+                  {item.outputName}
+                </p>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Original{" "}
+                  {fmtTime(
+                    item.duration,
+                  )}
+                  {" · "}
+                  Final{" "}
+                  {fmtTime(
+                    timing.finalDuration,
+                  )}
+                </p>
+              </div>
 
               <video
-                src={item.outputUrl}
+                src={
+                  item.outputUrl
+                }
                 controls
-                className="w-full rounded-md"
+                className="w-full rounded-md bg-black"
               />
 
               <Button
                 size="sm"
-                onClick={() =>
-                  item.outputBlob &&
-                  downloadBlob(
-                    item.outputBlob,
-                    item.outputName!,
-                  )
-                }
+                onClick={() => {
+                  if (
+                    item.outputBlob
+                  ) {
+                    downloadBlob(
+                      item.outputBlob,
+                      item.outputName ??
+                        "geotagged-video.mp4",
+                    );
+                  }
+                }}
               >
                 Download
               </Button>
+
             </div>
           )}
 
-        {open && (
-          <div className="space-y-4 border-t pt-4">
+        {/* ================================================== */}
+        {/* EDITOR */}
+        {/* ================================================== */}
 
+        {open && (
+          <div className="space-y-6 border-t pt-5">
+
+            {/* ================================================== */}
             {/* VIDEO PREVIEW */}
-            <div className="relative overflow-hidden rounded-md bg-black">
+            {/* ================================================== */}
+
+            <div className="relative overflow-hidden rounded-lg bg-black">
+
               <video
                 ref={videoRef}
                 src={item.url}
                 controls
+                preload="metadata"
                 className="block w-full"
               />
+
+              {/* GEOTAG PREVIEW */}
 
               {overlayUrl &&
                 showOverlay && (
                   <img
-                    src={overlayUrl}
+                    src={
+                      overlayUrl
+                    }
                     alt="Geotag overlay preview"
                     className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
                     style={{
+                      /*
+                       * WIDTH is controlled
+                       * independently.
+                       */
                       width: `${widthPercent}%`,
-                      height: "auto",
+
+                      /*
+                       * HEIGHT is controlled
+                       * independently.
+                       */
+                      height: `${heightPercent}%`,
+
+                      /*
+                       * Do NOT automatically
+                       * preserve aspect ratio.
+                       *
+                       * User controls both.
+                       */
+                      objectFit:
+                        "fill",
+
                       opacity:
-                        item.settings.opacity,
+                        item.settings
+                          .opacity,
                     }}
                   />
                 )}
-            </div>
-
-            {/* TRIM */}
-            <div className="grid grid-cols-2 gap-4">
-
-              <div className="space-y-2">
-                <Label>
-                  Start (s)
-                </Label>
-
-                <Input
-                  type="number"
-                  min={0}
-                  max={item.duration}
-                  step={0.1}
-                  value={
-                    item.settings
-                      .trimStart
-                  }
-                  onChange={(e) =>
-                    onUpdate(
-                      item.id,
-                      {
-                        trimStart:
-                          Number(
-                            e.target
-                              .value,
-                          ),
-                      },
-                    )
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>
-                  End (s)
-                </Label>
-
-                <Input
-                  type="number"
-                  min={0}
-                  max={item.duration}
-                  step={0.1}
-                  value={
-                    item.settings
-                      .trimEnd
-                  }
-                  onChange={(e) =>
-                    onUpdate(
-                      item.id,
-                      {
-                        trimEnd:
-                          Number(
-                            e.target
-                              .value,
-                          ),
-                      },
-                    )
-                  }
-                />
-              </div>
 
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              Original{" "}
-              {fmtTime(item.duration)}
-              {" → "}
-              Final{" "}
-              {fmtTime(
-                t.finalDuration,
-              )}
-            </p>
+            {/* ================================================== */}
+            {/* TRIM SETTINGS */}
+            {/* ================================================== */}
 
-            {/* GEOTAG DURATION */}
-            <div className="space-y-2">
+            <div className="space-y-3">
 
-              <Label>
-                Geotag Duration
-              </Label>
+              <div>
+                <Label className="text-base">
+                  Video Trim
+                </Label>
 
-              <div className="flex flex-wrap gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Select the portion of
+                  the video to export.
+                </p>
+              </div>
 
-                {DURATION_PERCENTS.map(
-                  (p) => (
-                    <Button
-                      key={p}
-                      size="sm"
-                      variant={
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+
+                {/* START */}
+
+                <div className="space-y-2">
+                  <Label>
+                    Start (seconds)
+                  </Label>
+
+                  <Input
+                    type="number"
+                    min={0}
+                    max={
+                      item.duration
+                    }
+                    step={0.1}
+                    value={
+                      item.settings
+                        .trimStart
+                    }
+                    onChange={(
+                      event,
+                    ) => {
+                      const value =
+                        Number(
+                          event.target
+                            .value,
+                        );
+
+                      const end =
                         item.settings
-                          .percent === p
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() =>
-                        onUpdate(
-                          item.id,
-                          {
-                            percent: p,
-                          },
-                        )
-                      }
-                    >
-                      {p}%
-                    </Button>
-                  ),
-                )}
+                          .trimEnd;
+
+                      onUpdate(
+                        item.id,
+                        {
+                          trimStart:
+                            Math.max(
+                              0,
+                              Math.min(
+                                value,
+                                end -
+                                  0.1,
+                              ),
+                            ),
+                        },
+                      );
+                    }}
+                  />
+                </div>
+
+                {/* END */}
+
+                <div className="space-y-2">
+                  <Label>
+                    End (seconds)
+                  </Label>
+
+                  <Input
+                    type="number"
+                    min={0}
+                    max={
+                      item.duration
+                    }
+                    step={0.1}
+                    value={
+                      item.settings
+                        .trimEnd
+                    }
+                    onChange={(
+                      event,
+                    ) => {
+                      const value =
+                        Number(
+                          event.target
+                            .value,
+                        );
+
+                      const start =
+                        item.settings
+                          .trimStart;
+
+                      onUpdate(
+                        item.id,
+                        {
+                          trimEnd:
+                            Math.min(
+                              item.duration,
+                              Math.max(
+                                value,
+                                start +
+                                  0.1,
+                              ),
+                            ),
+                        },
+                      );
+                    }}
+                  />
+                </div>
 
               </div>
 
-              <Slider
-                value={[
-                  item.settings.percent,
-                ]}
-                min={5}
-                max={100}
-                step={1}
-                onValueChange={([
-                  value,
-                ]) =>
-                  onUpdate(
-                    item.id,
-                    {
-                      percent:
-                        value ??
-                        item.settings
-                          .percent,
-                    },
-                  )
-                }
-              />
-
-              <p className="text-sm">
-                Geotag will appear for{" "}
+              <p className="text-sm text-muted-foreground">
+                Final video duration:{" "}
                 <strong>
-                  {t.geotagDuration.toFixed(
-                    1,
-                  )}{" "}
-                  seconds
-                </strong>{" "}
-                of this video.
+                  {fmtTime(
+                    timing.finalDuration,
+                  )}
+                </strong>
               </p>
 
             </div>
 
-            {/* TIMING */}
-            <div className="space-y-2">
+            {/* ================================================== */}
+            {/* GEOTAG DURATION */}
+            {/* ================================================== */}
 
-              <Label>
-                Timing
-              </Label>
-
-              <div className="flex gap-2">
-
-                {(
-                  [
-                    "beginning",
-                    "end",
-                  ] as const
-                ).map((tm) => (
-                  <Button
-                    key={tm}
-                    size="sm"
-                    variant={
-                      item.settings
-                        .timing === tm
-                        ? "default"
-                        : "outline"
-                    }
-                    onClick={() =>
-                      onUpdate(
-                        item.id,
-                        {
-                          timing: tm,
-                        },
-                      )
-                    }
-                  >
-                    {tm ===
-                    "beginning"
-                      ? "Beginning"
-                      : "End"}
-                  </Button>
-                ))}
-
-              </div>
-
-            </div>
-
-            {/* POSITION */}
-            <div className="space-y-2">
-
-              <Label>
-                Geotag Position
-              </Label>
-
-              <div className="flex flex-wrap gap-2">
-
-                {POSITIONS.map(
-                  (p) => (
-                    <Button
-                      key={p.key}
-                      size="sm"
-                      variant={
-                        item.settings
-                          .position ===
-                        p.key
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() =>
-                        onUpdate(
-                          item.id,
-                          {
-                            position:
-                              p.key,
-                          },
-                        )
-                      }
-                    >
-                      {p.label}
-                    </Button>
-                  ),
-                )}
-
-              </div>
-
-            </div>
-
-            {/* GEOTAG WIDTH */}
             <div className="space-y-4 rounded-lg border p-4">
 
               <div>
-                <Label className="text-base">
-                  Geotag Width
-                </Label>
+                <div className="flex items-center justify-between gap-3">
 
-                <p className="text-xs text-muted-foreground">
-                  Controls how much of the
-                  video's width the geotag
-                  covers. Height is calculated
-                  automatically to preserve the
-                  geotag's proportions.
+                  <Label className="text-base">
+                    Geotag Duration
+                  </Label>
+
+                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
+                    {
+                      item.settings
+                        .percent
+                    }%
+                  </span>
+
+                </div>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Percentage of the final
+                  video duration during which
+                  the geotag is visible.
                 </p>
               </div>
 
-              {/* QUICK WIDTH BUTTONS */}
+              {/* QUICK BUTTONS */}
+
               <div className="flex flex-wrap gap-2">
 
-                {WIDTH_PERCENTS.map(
-                  (p) => (
+                {[
+                  10,
+                  20,
+                  30,
+                  40,
+                  50,
+                  75,
+                  100,
+                ].map(
+                  (value) => (
                     <Button
-                      key={p}
+                      key={value}
                       size="sm"
                       variant={
-                        widthPercent === p
+                        item.settings
+                          .percent ===
+                        value
                           ? "default"
                           : "outline"
                       }
                       onClick={() =>
-                        onUpdate(
-                          item.id,
-                          {
-                            scale:
-                              p / 100,
-                          },
+                        updateDurationPercent(
+                          value,
                         )
                       }
                     >
-                      {p}%
+                      {value}%
                     </Button>
                   ),
                 )}
 
               </div>
 
-              {/* WIDTH SLIDER */}
-              <div className="space-y-2">
+              {/* SLIDER */}
 
-                <div className="flex justify-between">
+              <Slider
+                value={[
+                  item.settings
+                    .percent,
+                ]}
+                min={1}
+                max={100}
+                step={1}
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
+
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateDurationPercent(
+                      value,
+                    );
+                  }
+                }}
+              />
+
+              <p className="text-sm">
+                Geotag visible for{" "}
+                <strong>
+                  {timing.geotagDuration.toFixed(
+                    1,
+                  )}{" "}
+                  seconds
+                </strong>
+              </p>
+
+            </div>
+
+            {/* ================================================== */}
+            {/* TIMING */}
+            {/* ================================================== */}
+
+            <div className="space-y-3">
+
+              <div>
+                <Label className="text-base">
+                  Geotag Timing
+                </Label>
+
+                <p className="text-xs text-muted-foreground">
+                  Choose when the geotag
+                  appears.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+
+                <Button
+                  size="sm"
+                  variant={
+                    item.settings
+                      .timing ===
+                    "beginning"
+                      ? "default"
+                      : "outline"
+                  }
+                  onClick={() =>
+                    onUpdate(
+                      item.id,
+                      {
+                        timing:
+                          "beginning",
+                      },
+                    )
+                  }
+                >
+                  Beginning
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant={
+                    item.settings
+                      .timing ===
+                    "end"
+                      ? "default"
+                      : "outline"
+                  }
+                  onClick={() =>
+                    onUpdate(
+                      item.id,
+                      {
+                        timing:
+                          "end",
+                      },
+                    )
+                  }
+                >
+                  End
+                </Button>
+
+              </div>
+
+            </div>
+
+            {/* ================================================== */}
+            {/* GEOTAG SIZE */}
+            {/* ================================================== */}
+
+            <div className="space-y-6 rounded-lg border p-4">
+
+              <div>
+                <Label className="text-base">
+                  Geotag Size
+                </Label>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Width and height are
+                  controlled independently.
+                </p>
+              </div>
+
+              {/* ================================================== */}
+              {/* WIDTH */}
+              {/* ================================================== */}
+
+              <div className="space-y-3">
+
+                <div className="flex items-center justify-between">
 
                   <Label>
-                    Width
+                    Geotag Width
                   </Label>
 
-                  <span className="text-sm font-medium">
+                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
                     {widthPercent}%
                   </span>
 
@@ -599,150 +807,368 @@ export function VideoCard({
                   min={10}
                   max={100}
                   step={1}
-                  onValueChange={([
-                    value,
-                  ]) =>
-                    onUpdate(
-                      item.id,
-                      {
-                        scale:
-                          (value ??
-                            widthPercent) /
-                          100,
-                      },
-                    )
-                  }
+                  onValueChange={(
+                    values,
+                  ) => {
+                    const value =
+                      values[0];
+
+                    if (
+                      value !==
+                      undefined
+                    ) {
+                      updateWidth(
+                        value,
+                      );
+                    }
+                  }}
                 />
+
+                {/* QUICK WIDTH */}
+
+                <div className="flex flex-wrap gap-2">
+
+                  {[
+                    25,
+                    50,
+                    75,
+                    90,
+                    100,
+                  ].map(
+                    (value) => (
+                      <Button
+                        key={value}
+                        size="sm"
+                        variant={
+                          widthPercent ===
+                          value
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() =>
+                          updateWidth(
+                            value,
+                          )
+                        }
+                      >
+                        {value}%
+                      </Button>
+                    ),
+                  )}
+
+                </div>
 
               </div>
 
-              {/* EXACT WIDTH INPUT */}
-              <div className="space-y-2">
+              {/* ================================================== */}
+              {/* HEIGHT */}
+              {/* ================================================== */}
 
-                <Label>
-                  Enter Width (%)
-                </Label>
+              <div className="space-y-3">
 
-                <div className="flex gap-2">
+                <div className="flex items-center justify-between">
 
-                  <Input
-                    type="number"
-                    min={10}
-                    max={100}
-                    step={1}
-                    value={widthPercent}
-                    onChange={(e) => {
-                      const value =
-                        Number(
-                          e.target
-                            .value,
-                        );
+                  <Label>
+                    Geotag Height
+                  </Label>
 
-                      if (
-                        !Number.isFinite(
-                          value,
-                        )
-                      ) {
-                        return;
-                      }
-
-                      const clamped =
-                        Math.min(
-                          100,
-                          Math.max(
-                            10,
-                            value,
-                          ),
-                        );
-
-                      onUpdate(
-                        item.id,
-                        {
-                          scale:
-                            clamped /
-                            100,
-                        },
-                      );
-                    }}
-                  />
-
-                  <span className="flex items-center text-sm text-muted-foreground">
-                    %
+                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
+                    {heightPercent}%
                   </span>
 
                 </div>
 
+                <Slider
+                  value={[
+                    heightPercent,
+                  ]}
+                  min={5}
+                  max={100}
+                  step={1}
+                  onValueChange={(
+                    values,
+                  ) => {
+                    const value =
+                      values[0];
+
+                    if (
+                      value !==
+                      undefined
+                    ) {
+                      updateHeight(
+                        value,
+                      );
+                    }
+                  }}
+                />
+
+                {/* QUICK HEIGHT */}
+
+                <div className="flex flex-wrap gap-2">
+
+                  {[
+                    10,
+                    15,
+                    20,
+                    25,
+                    30,
+                    40,
+                    50,
+                    75,
+                    100,
+                  ].map(
+                    (value) => (
+                      <Button
+                        key={value}
+                        size="sm"
+                        variant={
+                          heightPercent ===
+                          value
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() =>
+                          updateHeight(
+                            value,
+                          )
+                        }
+                      >
+                        {value}%
+                      </Button>
+                    ),
+                  )}
+
+                </div>
+
               </div>
 
-              {/* 100% INFORMATION */}
-              {widthPercent ===
-                100 && (
-                <div className="rounded-md bg-muted p-3 text-sm">
-                  <strong>
-                    Full Width
-                  </strong>
+              {/* ================================================== */}
+              {/* SIZE SUMMARY */}
+              {/* ================================================== */}
 
-                  <p className="text-xs text-muted-foreground">
-                    The geotag will cover the
-                    complete width of the
-                    video. Its height will
-                    automatically maintain its
-                    original aspect ratio.
-                  </p>
-                </div>
-              )}
+              <div className="rounded-md bg-muted p-3">
+
+                <p className="text-sm font-medium">
+                  Current Geotag Size
+                </p>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Width:{" "}
+                  <strong>
+                    {widthPercent}%
+                  </strong>
+                  {" · "}
+                  Height:{" "}
+                  <strong>
+                    {heightPercent}%
+                  </strong>
+                </p>
+
+                <p className="mt-2 text-xs text-muted-foreground">
+                  The exported geotag will
+                  use exactly these width and
+                  height percentages relative
+                  to the video.
+                </p>
+
+              </div>
 
             </div>
 
-            {/* OPACITY */}
-            <div className="space-y-2">
+            {/* ================================================== */}
+            {/* POSITION */}
+            {/* ================================================== */}
 
-              <Label>
-                Opacity (
-                {Math.round(
-                  item.settings
-                    .opacity * 100,
+            <div className="space-y-3">
+
+              <div>
+                <Label className="text-base">
+                  Geotag Position
+                </Label>
+
+                <p className="text-xs text-muted-foreground">
+                  Choose where the geotag is
+                  placed on the video.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+
+                {POSITIONS.map(
+                  (position) => (
+                    <Button
+                      key={
+                        position.key
+                      }
+                      size="sm"
+                      variant={
+                        item.settings
+                          .position ===
+                        position.key
+                          ? "default"
+                          : "outline"
+                      }
+                      onClick={() =>
+                        onUpdate(
+                          item.id,
+                          {
+                            position:
+                              position.key,
+                          },
+                        )
+                      }
+                    >
+                      {
+                        position.label
+                      }
+                    </Button>
+                  ),
                 )}
-                %)
-              </Label>
+
+              </div>
+
+            </div>
+
+            {/* ================================================== */}
+            {/* OPACITY */}
+            {/* ================================================== */}
+
+            <div className="space-y-3">
+
+              <div className="flex items-center justify-between">
+
+                <Label>
+                  Geotag Opacity
+                </Label>
+
+                <span className="text-sm font-medium">
+                  {Math.round(
+                    item.settings
+                      .opacity *
+                      100,
+                  )}
+                  %
+                </span>
+
+              </div>
 
               <Slider
                 value={[
                   item.settings
-                    .opacity * 100,
+                    .opacity *
+                    100,
                 ]}
-                min={20}
+                min={10}
                 max={100}
                 step={1}
-                onValueChange={([
-                  value,
-                ]) =>
-                  onUpdate(
-                    item.id,
-                    {
-                      opacity:
-                        (value ??
-                          item.settings
-                            .opacity *
-                            100) /
-                        100,
-                    },
-                  )
-                }
+                onValueChange={(
+                  values,
+                ) => {
+                  const value =
+                    values[0];
+
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    onUpdate(
+                      item.id,
+                      {
+                        opacity:
+                          value /
+                          100,
+                      },
+                    );
+                  }
+                }}
               />
 
             </div>
 
+            {/* ================================================== */}
+            {/* SETTINGS SUMMARY */}
+            {/* ================================================== */}
+
+            <div className="rounded-lg border bg-muted/30 p-4">
+
+              <p className="mb-3 text-sm font-semibold">
+                Geotag Settings
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Duration
+                  </p>
+
+                  <p className="font-medium">
+                    {
+                      item.settings
+                        .percent
+                    }%
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Width
+                  </p>
+
+                  <p className="font-medium">
+                    {widthPercent}%
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Height
+                  </p>
+
+                  <p className="font-medium">
+                    {heightPercent}%
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Position
+                  </p>
+
+                  <p className="font-medium">
+                    {
+                      POSITIONS.find(
+                        (p) =>
+                          p.key ===
+                          item
+                            .settings
+                            .position,
+                      )?.label ??
+                      item.settings
+                        .position
+                    }
+                  </p>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* ================================================== */}
             {/* APPLY TO ALL */}
+            {/* ================================================== */}
+
             <Button
-              size="sm"
+              className="w-full sm:w-auto"
               variant="secondary"
               onClick={() =>
-                onApplyToAll(item.id)
+                onApplyToAll(
+                  item.id,
+                )
               }
             >
-              Apply Current Settings to
-              All Videos
+              Apply Current Settings
+              to All Videos
             </Button>
 
           </div>
