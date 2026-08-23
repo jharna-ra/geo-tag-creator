@@ -1,53 +1,81 @@
-export interface VideoMeta {
+/**
+ * Video utility functions
+ */
+
+/**
+ * Download a Blob using the browser.
+ */
+export function downloadBlob(
+  blob: Blob,
+  filename: string,
+): void {
+  const url = URL.createObjectURL(blob);
+
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+
+  anchor.remove();
+
+  // Give the browser time to start the download
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
+/**
+ * Keep the EXACT original video filename.
+ *
+ * Examples:
+ *
+ * video.mp4        → video.mp4
+ * VID_001.MP4      → VID_001.MP4
+ * my-video.mov     → my-video.mov
+ * recording.webm   → recording.webm
+ */
+export function outputName(
+  originalName: string,
+): string {
+  return originalName;
+}
+
+/**
+ * Read basic metadata from a video.
+ */
+export interface VideoMetadata {
   duration: number;
   width: number;
   height: number;
 }
 
-/* ============================================================
-   PROBE VIDEO
-============================================================ */
-
+/**
+ * Probe a video using the browser's HTMLVideoElement.
+ */
 export function probeVideo(
   url: string,
-): Promise<VideoMeta> {
+): Promise<VideoMetadata> {
   return new Promise(
     (resolve, reject) => {
       const video =
-        document.createElement(
-          "video",
-        );
+        document.createElement("video");
 
-      video.preload =
-        "metadata";
-
-      video.muted = true;
-
-      let finished = false;
+      let settled = false;
 
       const cleanup = () => {
-        video.onloadedmetadata =
-          null;
-
-        video.onerror =
-          null;
-
-        video.onabort =
-          null;
-
-        video.removeAttribute(
-          "src",
-        );
-
+        video.removeAttribute("src");
         video.load();
       };
 
       const fail = (
         message: string,
       ) => {
-        if (finished) return;
+        if (settled) return;
 
-        finished = true;
+        settled = true;
 
         cleanup();
 
@@ -56,145 +84,60 @@ export function probeVideo(
         );
       };
 
-      video.onloadedmetadata =
-        () => {
-          if (finished) {
-            return;
-          }
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
 
-          const duration =
-            Number.isFinite(
-              video.duration,
-            )
-              ? video.duration
-              : 0;
+      video.onloadedmetadata = () => {
+        if (settled) return;
 
-          const width =
-            video.videoWidth || 0;
+        const duration =
+          Number(video.duration);
 
-          const height =
-            video.videoHeight || 0;
+        const width =
+          Number(video.videoWidth);
 
-          /*
-           * Make sure the browser actually
-           * understood the video.
-           */
+        const height =
+          Number(video.videoHeight);
 
-          if (
-            duration <= 0
-          ) {
-            fail(
-              "The video duration could not be read. Please upload a valid MP4 video.",
-            );
-
-            return;
-          }
-
-          if (
-            width <= 0 ||
-            height <= 0
-          ) {
-            fail(
-              "The video dimensions could not be read. Please upload a valid MP4 video.",
-            );
-
-            return;
-          }
-
-          finished = true;
-
-          cleanup();
-
-          resolve({
-            duration,
-            width,
-            height,
-          });
-        };
-
-      video.onerror =
-        () => {
+        if (
+          !Number.isFinite(duration) ||
+          duration <= 0
+        ) {
           fail(
-            "This video format cannot be read by your browser. Please use an MP4 video.",
+            "Could not read this video's duration.",
           );
-        };
+          return;
+        }
 
-      video.onabort =
-        () => {
+        if (
+          !width ||
+          !height
+        ) {
           fail(
-            "Video loading was aborted. Please try the video again.",
+            "Could not read this video's dimensions.",
           );
-        };
+          return;
+        }
 
-      /*
-       * Start loading.
-       */
+        settled = true;
+
+        cleanup();
+
+        resolve({
+          duration,
+          width,
+          height,
+        });
+      };
+
+      video.onerror = () => {
+        fail(
+          "Unable to read this video in your browser. Please upload an MP4 video and try again.",
+        );
+      };
 
       video.src = url;
-
-      video.load();
     },
   );
-}
-
-/* ============================================================
-   OUTPUT NAME
-============================================================ */
-
-export function outputName(
-  name: string,
-): string {
-  const dot =
-    name.lastIndexOf(
-      ".",
-    );
-
-  const base =
-    dot > 0
-      ? name.slice(0, dot)
-      : name;
-
-  return `${base}_geotagged.mp4`;
-}
-
-/* ============================================================
-   DOWNLOAD
-============================================================ */
-
-export function downloadBlob(
-  blob: Blob,
-  filename: string,
-) {
-  if (!blob) {
-    return;
-  }
-
-  const url =
-    URL.createObjectURL(
-      blob,
-    );
-
-  const anchor =
-    document.createElement(
-      "a",
-    );
-
-  anchor.href = url;
-
-  anchor.download =
-    filename;
-
-  document.body.appendChild(
-    anchor,
-  );
-
-  anchor.click();
-
-  anchor.remove();
-
-  setTimeout(() => {
-    URL.revokeObjectURL(
-      url,
-    );
-  }, 4000);
 }
