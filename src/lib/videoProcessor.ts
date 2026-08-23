@@ -71,13 +71,6 @@ export function computeTiming(
   const finalDuration =
     end - start;
 
-  /*
-   * IMPORTANT:
-   *
-   * percent = DURATION percentage.
-   *
-   * It does NOT control geotag size.
-   */
   const geotagDuration =
     (finalDuration *
       item.settings.percent) /
@@ -186,41 +179,55 @@ export async function processVideo({
     );
 
     /*
-     * scale is a FRACTION:
+     * WIDTH
      *
-     * 0.25 = 25%
-     * 0.50 = 50%
-     * 0.75 = 75%
-     * 1.00 = 100%
+     * Example:
+     * scale = 1.0
+     * => 100% video width
+     *
+     * scale = 0.75
+     * => 75% video width
      */
-    const scale = Math.max(
-      0.1,
-      Math.min(
-        1,
-        item.settings.scale,
-      ),
-    );
+    const widthScale =
+      Math.max(
+        0.01,
+        Math.min(
+          1,
+          item.settings.scale,
+        ),
+      );
 
     /*
-     * Use the ACTUAL video width.
+     * HEIGHT
      *
-     * If video width = 1920
-     * and scale = 1.0:
+     * Example:
+     * heightScale = 0.20
+     * => 20% video height
      *
-     * overlayW = 1920
+     * heightScale = 0.50
+     * => 50% video height
+     */
+    const heightScale =
+      Math.max(
+        0.01,
+        Math.min(
+          1,
+          item.settings
+            .heightScale,
+        ),
+      );
+
+    /*
+     * Use the actual video dimensions.
      *
-     * If scale = 0.75:
-     *
-     * overlayW = 1440
-     *
-     * If scale = 0.5:
-     *
-     * overlayW = 960
-     *
-     * -1 keeps the geotag's aspect ratio.
+     * main_w = video width
+     * main_h = video height
      */
     const overlayW =
-      `main_w*${scale}`;
+      `main_w*${widthScale}`;
+
+    const overlayH =
+      `main_h*${heightScale}`;
 
     const {
       x,
@@ -240,18 +247,27 @@ export async function processVideo({
       );
 
     /*
-     * FFmpeg filter:
+     * IMPORTANT:
      *
-     * 1. Resize geotag based on video width.
-     * 2. Keep original aspect ratio.
-     * 3. Apply opacity.
-     * 4. Overlay at selected position.
-     * 5. Show only during selected
-     *    percentage of video duration.
+     * We now specify BOTH width
+     * and height.
+     *
+     * Previously:
+     *
+     * scale=width:-1
+     *
+     * Height was automatic.
+     *
+     * Now:
+     *
+     * scale=width:height
+     *
+     * Both are controlled by
+     * the user.
      */
     const filter =
       `[1:v]` +
-      `scale=${overlayW}:-1,` +
+      `scale=${overlayW}:${overlayH},` +
       `format=rgba,` +
       `colorchannelmixer=aa=${alpha}` +
       `[ov];` +
@@ -364,7 +380,7 @@ export async function processVideo({
           file,
         );
       } catch {
-        // Ignore cleanup errors.
+        // Ignore cleanup errors
       }
     }
   }
