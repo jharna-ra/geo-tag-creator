@@ -1,21 +1,17 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
 } from "react";
 
-import type { CropRect } from "@/lib/crop";
+import type { CropRect } from "@/types/video";
 
 interface CropSelectorProps {
   videoWidth: number;
-
   videoHeight: number;
-
   crop: CropRect;
-
-  onChange: (
-    crop: CropRect,
-  ) => void;
+  onChange: (crop: CropRect) => void;
 }
 
 type DragMode =
@@ -43,8 +39,6 @@ interface DragStart {
 const MIN_CROP = 0.05;
 
 export function CropSelector({
-  videoWidth,
-  videoHeight,
   crop,
   onChange,
 }: CropSelectorProps) {
@@ -57,7 +51,7 @@ export function CropSelector({
   const dragStart =
     useRef<DragStart | null>(null);
 
-  const getRelativePos =
+  const getRelativePosition =
     useCallback(
       (
         event:
@@ -82,15 +76,25 @@ export function CropSelector({
         }
 
         return {
-          x:
-            (event.clientX -
-              rect.left) /
-            rect.width,
+          x: Math.max(
+            0,
+            Math.min(
+              1,
+              (event.clientX -
+                rect.left) /
+                rect.width,
+            ),
+          ),
 
-          y:
-            (event.clientY -
-              rect.top) /
-            rect.height,
+          y: Math.max(
+            0,
+            Math.min(
+              1,
+              (event.clientY -
+                rect.top) /
+                rect.height,
+            ),
+          ),
         };
       },
       [],
@@ -100,12 +104,11 @@ export function CropSelector({
     value: number,
     min: number,
     max: number,
-  ) => {
-    return Math.min(
+  ) =>
+    Math.min(
       max,
       Math.max(min, value),
     );
-  };
 
   const startDrag = (
     event: React.PointerEvent,
@@ -115,7 +118,7 @@ export function CropSelector({
     event.stopPropagation();
 
     const point =
-      getRelativePos(event);
+      getRelativePosition(event);
 
     if (!point) {
       return;
@@ -123,7 +126,6 @@ export function CropSelector({
 
     dragStart.current = {
       point,
-
       crop: {
         ...crop,
       },
@@ -142,7 +144,7 @@ export function CropSelector({
 
   const handlePointerMove =
     useCallback(
-      (event: React.PointerEvent) => {
+      (event: PointerEvent) => {
         if (
           !dragMode ||
           !dragStart.current
@@ -151,7 +153,7 @@ export function CropSelector({
         }
 
         const point =
-          getRelativePos(event);
+          getRelativePosition(event);
 
         if (!point) {
           return;
@@ -171,16 +173,19 @@ export function CropSelector({
           point.y -
           start.point.y;
 
+        const right =
+          base.x + base.width;
+
+        const bottom =
+          base.y + base.height;
+
         let next: CropRect = {
           ...base,
         };
 
-        /*
-         * MOVE
-         */
-        if (
-          dragMode === "move"
-        ) {
+        /* MOVE */
+
+        if (dragMode === "move") {
           next.x = clamp(
             base.x + dx,
             0,
@@ -194,20 +199,9 @@ export function CropSelector({
           );
         }
 
-        /*
-         * NORTH-WEST
-         */
-        if (
-          dragMode === "nw"
-        ) {
-          const right =
-            base.x +
-            base.width;
+        /* NORTH-WEST */
 
-          const bottom =
-            base.y +
-            base.height;
-
+        if (dragMode === "nw") {
           const newX =
             clamp(
               base.x + dx,
@@ -223,26 +217,16 @@ export function CropSelector({
             );
 
           next.x = newX;
-
           next.y = newY;
-
           next.width =
             right - newX;
-
           next.height =
             bottom - newY;
         }
 
-        /*
-         * NORTH
-         */
-        if (
-          dragMode === "n"
-        ) {
-          const bottom =
-            base.y +
-            base.height;
+        /* NORTH */
 
+        if (dragMode === "n") {
           const newY =
             clamp(
               base.y + dy,
@@ -251,28 +235,13 @@ export function CropSelector({
             );
 
           next.y = newY;
-
           next.height =
             bottom - newY;
         }
 
-        /*
-         * NORTH-EAST
-         */
-        if (
-          dragMode === "ne"
-        ) {
-          const bottom =
-            base.y +
-            base.height;
+        /* NORTH-EAST */
 
-          const newWidth =
-            clamp(
-              base.width + dx,
-              MIN_CROP,
-              1 - base.x,
-            );
-
+        if (dragMode === "ne") {
           const newY =
             clamp(
               base.y + dy,
@@ -280,25 +249,23 @@ export function CropSelector({
               bottom - MIN_CROP,
             );
 
-          next.width =
-            newWidth;
+          const newRight =
+            clamp(
+              right + dx,
+              base.x + MIN_CROP,
+              1,
+            );
 
           next.y = newY;
-
           next.height =
             bottom - newY;
+          next.width =
+            newRight - base.x;
         }
 
-        /*
-         * WEST
-         */
-        if (
-          dragMode === "w"
-        ) {
-          const right =
-            base.x +
-            base.width;
+        /* WEST */
 
+        if (dragMode === "w") {
           const newX =
             clamp(
               base.x + dx,
@@ -307,35 +274,27 @@ export function CropSelector({
             );
 
           next.x = newX;
-
           next.width =
             right - newX;
         }
 
-        /*
-         * EAST
-         */
-        if (
-          dragMode === "e"
-        ) {
-          next.width =
+        /* EAST */
+
+        if (dragMode === "e") {
+          const newRight =
             clamp(
-              base.width + dx,
-              MIN_CROP,
-              1 - base.x,
+              right + dx,
+              base.x + MIN_CROP,
+              1,
             );
+
+          next.width =
+            newRight - base.x;
         }
 
-        /*
-         * SOUTH-WEST
-         */
-        if (
-          dragMode === "sw"
-        ) {
-          const right =
-            base.x +
-            base.width;
+        /* SOUTH-WEST */
 
+        if (dragMode === "sw") {
           const newX =
             clamp(
               base.x + dx,
@@ -343,105 +302,166 @@ export function CropSelector({
               right - MIN_CROP,
             );
 
-          const newHeight =
+          const newBottom =
             clamp(
-              base.height + dy,
-              MIN_CROP,
-              1 - base.y,
+              bottom + dy,
+              base.y + MIN_CROP,
+              1,
             );
 
           next.x = newX;
-
           next.width =
             right - newX;
-
           next.height =
-            newHeight;
+            newBottom - base.y;
         }
 
-        /*
-         * SOUTH
-         */
-        if (
-          dragMode === "s"
-        ) {
-          next.height =
+        /* SOUTH */
+
+        if (dragMode === "s") {
+          const newBottom =
             clamp(
-              base.height + dy,
-              MIN_CROP,
-              1 - base.y,
+              bottom + dy,
+              base.y + MIN_CROP,
+              1,
             );
+
+          next.height =
+            newBottom - base.y;
         }
 
-        /*
-         * SOUTH-EAST
-         */
-        if (
-          dragMode === "se"
-        ) {
+        /* SOUTH-EAST */
+
+        if (dragMode === "se") {
+          const newRight =
+            clamp(
+              right + dx,
+              base.x + MIN_CROP,
+              1,
+            );
+
+          const newBottom =
+            clamp(
+              bottom + dy,
+              base.y + MIN_CROP,
+              1,
+            );
+
           next.width =
-            clamp(
-              base.width + dx,
-              MIN_CROP,
-              1 - base.x,
-            );
+            newRight - base.x;
 
           next.height =
-            clamp(
-              base.height + dy,
-              MIN_CROP,
-              1 - base.y,
-            );
+            newBottom - base.y;
         }
 
-        onChange(next);
+        onChange({
+          x: clamp(
+            next.x,
+            0,
+            1,
+          ),
+          y: clamp(
+            next.y,
+            0,
+            1,
+          ),
+          width: clamp(
+            next.width,
+            MIN_CROP,
+            1,
+          ),
+          height: clamp(
+            next.height,
+            MIN_CROP,
+            1,
+          ),
+        });
       },
       [
         dragMode,
-        getRelativePos,
+        getRelativePosition,
         onChange,
       ],
     );
 
-  const stopDrag = () => {
-    setDragMode(null);
+  useEffect(() => {
+    if (!dragMode) {
+      return;
+    }
 
-    dragStart.current =
-      null;
-  };
+    window.addEventListener(
+      "pointermove",
+      handlePointerMove,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pointermove",
+        handlePointerMove,
+      );
+    };
+  }, [
+    dragMode,
+    handlePointerMove,
+  ]);
+
+  useEffect(() => {
+    const stopDragging = () => {
+      setDragMode(null);
+      dragStart.current = null;
+    };
+
+    window.addEventListener(
+      "pointerup",
+      stopDragging,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pointerup",
+        stopDragging,
+      );
+    };
+  }, []);
 
   const handleClass =
-    "absolute z-30 h-4 w-4 rounded-full border-2 border-white bg-black shadow cursor-pointer";
+    "absolute z-30 h-3 w-3 rounded-full border-2 border-white bg-black shadow cursor-pointer";
 
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 z-20 touch-none select-none"
-      onPointerMove={
-        handlePointerMove
-      }
-      onPointerUp={
-        stopDrag
-      }
-      onPointerCancel={
-        stopDrag
-      }
+      className="absolute inset-0 z-20 touch-none"
     >
-      {/* Dark area outside crop */}
+      {/* Outside darkening */}
       <div
-        className="absolute inset-0 bg-black/60 pointer-events-none"
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "rgba(0,0,0,0.55)",
+          clipPath: `polygon(
+            0 0,
+            100% 0,
+            100% 100%,
+            0 100%,
+            0 0,
+            ${crop.x * 100}% ${crop.y * 100}%,
+            ${crop.x * 100}% ${(crop.y + crop.height) * 100}%,
+            ${(crop.x + crop.width) * 100}% ${(crop.y + crop.height) * 100}%,
+            ${(crop.x + crop.width) * 100}% ${crop.y * 100}%,
+            ${crop.x * 100}% ${crop.y * 100}%
+          )`,
+          clipRule: "evenodd",
+        }}
       />
 
       {/* Crop rectangle */}
       <div
-        className="absolute border-2 border-white"
+        className="absolute z-20 border-2 border-white"
         style={{
           left: `${crop.x * 100}%`,
           top: `${crop.y * 100}%`,
           width: `${crop.width * 100}%`,
           height: `${crop.height * 100}%`,
-          boxShadow:
-            "0 0 0 9999px rgba(0,0,0,0.55)",
         }}
         onPointerDown={(event) =>
           startDrag(
@@ -451,118 +471,76 @@ export function CropSelector({
         }
       >
         {/* Grid */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute left-1/3 top-0 bottom-0 border-l border-white/40" />
-          <div className="absolute left-2/3 top-0 bottom-0 border-l border-white/40" />
-
-          <div className="absolute top-1/3 left-0 right-0 border-t border-white/40" />
-          <div className="absolute top-2/3 left-0 right-0 border-t border-white/40" />
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-1/3 top-0 h-full border-l border-white/40" />
+          <div className="absolute left-2/3 top-0 h-full border-l border-white/40" />
+          <div className="absolute top-1/3 left-0 w-full border-t border-white/40" />
+          <div className="absolute top-2/3 left-0 w-full border-t border-white/40" />
         </div>
 
-        {/* TOP LEFT */}
+        {/* NW */}
         <div
           className={`${handleClass} -left-2 -top-2 cursor-nwse-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "nw",
-            )
+            startDrag(event, "nw")
           }
         />
 
-        {/* TOP */}
+        {/* N */}
         <div
           className={`${handleClass} left-1/2 -top-2 -translate-x-1/2 cursor-ns-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "n",
-            )
+            startDrag(event, "n")
           }
         />
 
-        {/* TOP RIGHT */}
+        {/* NE */}
         <div
           className={`${handleClass} -right-2 -top-2 cursor-nesw-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "ne",
-            )
+            startDrag(event, "ne")
           }
         />
 
-        {/* LEFT */}
+        {/* W */}
         <div
           className={`${handleClass} -left-2 top-1/2 -translate-y-1/2 cursor-ew-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "w",
-            )
+            startDrag(event, "w")
           }
         />
 
-        {/* RIGHT */}
+        {/* E */}
         <div
           className={`${handleClass} -right-2 top-1/2 -translate-y-1/2 cursor-ew-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "e",
-            )
+            startDrag(event, "e")
           }
         />
 
-        {/* BOTTOM LEFT */}
+        {/* SW */}
         <div
           className={`${handleClass} -bottom-2 -left-2 cursor-nesw-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "sw",
-            )
+            startDrag(event, "sw")
           }
         />
 
-        {/* BOTTOM */}
+        {/* S */}
         <div
           className={`${handleClass} -bottom-2 left-1/2 -translate-x-1/2 cursor-ns-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "s",
-            )
+            startDrag(event, "s")
           }
         />
 
-        {/* BOTTOM RIGHT */}
+        {/* SE */}
         <div
           className={`${handleClass} -bottom-2 -right-2 cursor-nwse-resize`}
           onPointerDown={(event) =>
-            startDrag(
-              event,
-              "se",
-            )
+            startDrag(event, "se")
           }
         />
-
-        {/* Label */}
-        <div className="absolute left-1/2 top-2 -translate-x-1/2 rounded bg-black/70 px-2 py-1 text-xs text-white pointer-events-none">
-          {Math.round(
-            crop.width * 100,
-          )}
-          % ×{" "}
-          {Math.round(
-            crop.height * 100,
-          )}
-          %
-        </div>
-      </div>
-
-      {/* Instructions */}
-      <div className="absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-md bg-black/80 px-3 py-2 text-xs text-white pointer-events-none whitespace-nowrap">
-        Drag inside to move • Drag handles to resize
       </div>
     </div>
   );
