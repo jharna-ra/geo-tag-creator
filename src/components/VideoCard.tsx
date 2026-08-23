@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,19 +11,28 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 
+import { CropSelector } from "@/components/CropSelector";
+
 import { computeTiming } from "@/lib/videoProcessor";
 import { downloadBlob } from "@/lib/videoUtils";
 
 import type { OverlayPosition } from "@/types/geotag";
+
 import {
   fmtTime,
   type VideoItem,
   type VideoSettings,
 } from "@/types/video";
 
+/* =========================================================
+   TYPES
+========================================================= */
+
 interface Props {
   item: VideoItem;
+
   overlayUrl: string | null;
+
   index: number;
 
   onUpdate: (
@@ -27,14 +40,18 @@ interface Props {
     patch: Partial<VideoSettings>,
   ) => void;
 
-  onRemove: (id: string) => void;
+  onRemove: (
+    id: string,
+  ) => void;
 
-  onApplyToAll: (id: string) => void;
+  onApplyToAll: (
+    id: string,
+  ) => void;
 }
 
-/* ---------------------------------------------
+/* =========================================================
    GEOTAG POSITIONS
---------------------------------------------- */
+========================================================= */
 
 const POSITIONS: {
   key: OverlayPosition;
@@ -62,9 +79,9 @@ const POSITIONS: {
   },
 ];
 
-/* ---------------------------------------------
-   PREVIEW POSITION CLASSES
---------------------------------------------- */
+/* =========================================================
+   GEOTAG POSITION CLASSES
+========================================================= */
 
 const POS_CLASS: Record<
   OverlayPosition,
@@ -86,6 +103,10 @@ const POS_CLASS: Record<
     "left-1/2 -translate-x-1/2 bottom-0",
 };
 
+/* =========================================================
+   VIDEO CARD
+========================================================= */
+
 export function VideoCard({
   item,
   overlayUrl,
@@ -94,69 +115,94 @@ export function VideoCard({
   onRemove,
   onApplyToAll,
 }: Props) {
-  /* ---------------------------------------------
-     OPEN/CLOSE EDITOR
-  --------------------------------------------- */
+  /* =======================================================
+     OPEN / CLOSE EDITOR
+  ======================================================= */
 
-  const [open, setOpen] =
-    useState(index === 0);
+  const [open, setOpen] = useState(
+    index === 0,
+  );
 
-  /* ---------------------------------------------
+  /* =======================================================
      VIDEO REF
-  --------------------------------------------- */
+  ======================================================= */
 
   const videoRef =
     useRef<HTMLVideoElement>(null);
 
-  /* ---------------------------------------------
+  /* =======================================================
      GEOTAG PREVIEW VISIBILITY
-  --------------------------------------------- */
+  ======================================================= */
 
   const [showOverlay, setShowOverlay] =
     useState(true);
 
-  /* ---------------------------------------------
-     CALCULATE VIDEO TIMING
-  --------------------------------------------- */
+  /* =======================================================
+     CROP MODE
+  ======================================================= */
+
+  const [cropEnabled, setCropEnabled] =
+    useState(false);
+
+  /* =======================================================
+     VIDEO TIMING
+  ======================================================= */
 
   const timing =
     computeTiming(item);
 
-  /* ---------------------------------------------
+  /* =======================================================
      WIDTH %
-
-     scale:
-     0.5 = 50%
-     0.75 = 75%
-     1 = 100%
-  --------------------------------------------- */
+  ======================================================= */
 
   const widthPercent =
     item.settings.scale * 100;
 
-  /* ---------------------------------------------
+  /* =======================================================
      HEIGHT %
-
-     heightScale:
-     0.05 = 5%
-     0.10 = 10%
-     0.235 = 23.5%
-     1 = 100%
-  --------------------------------------------- */
+  ======================================================= */
 
   const heightPercent =
     item.settings.heightScale * 100;
 
-  /* ---------------------------------------------
+  /* =======================================================
      DURATION %
-  --------------------------------------------- */
+  ======================================================= */
 
   const durationPercent =
     item.settings.percent;
 
-  /* ---------------------------------------------
-     VIDEO PLAYBACK
-  --------------------------------------------- */
+  /* =======================================================
+     CROP
+     
+     crop values are fractions:
+     
+     x      = 0 - 1
+     y      = 0 - 1
+     width  = 0 - 1
+     height = 0 - 1
+     
+     Example:
+     
+     x = 0.1
+     y = 0.1
+     width = 0.8
+     height = 0.8
+     
+     means crop 80% of the video.
+  ======================================================= */
+
+  const crop =
+    item.settings.crop ?? {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    };
+
+  /* =======================================================
+     VIDEO PLAYBACK / GEOTAG TIMING
+  ======================================================= */
 
   useEffect(() => {
     const video =
@@ -171,9 +217,10 @@ export function VideoCard({
         const currentTime =
           video.currentTime;
 
-        /*
-         * Stop at selected trim end.
-         */
+        /* -----------------------------------------------
+           Stop at selected trim end
+        ------------------------------------------------ */
+
         if (
           currentTime >=
           timing.end
@@ -186,18 +233,19 @@ export function VideoCard({
           return;
         }
 
-        /*
-         * Convert current video time
-         * into trimmed-video time.
-         */
+        /* -----------------------------------------------
+           Convert current time to
+           trimmed-video relative time
+        ------------------------------------------------ */
+
         const relativeTime =
           currentTime -
           timing.start;
 
-        /*
-         * Determine whether geotag
-         * should currently be visible.
-         */
+        /* -----------------------------------------------
+           Determine geotag visibility
+        ------------------------------------------------ */
+
         const visible =
           relativeTime >=
             timing.overlayStart &&
@@ -227,9 +275,9 @@ export function VideoCard({
     timing.overlayEnd,
   ]);
 
-  /* ---------------------------------------------
+  /* =======================================================
      WIDTH UPDATE
-  --------------------------------------------- */
+  ======================================================= */
 
   const updateWidth = (
     value: number,
@@ -243,29 +291,24 @@ export function VideoCard({
     const clamped =
       Math.min(
         100,
-        Math.max(0.1, value),
+        Math.max(
+          0.1,
+          value,
+        ),
       );
 
-    onUpdate(item.id, {
-      scale:
-        clamped / 100,
-    });
+    onUpdate(
+      item.id,
+      {
+        scale:
+          clamped / 100,
+      },
+    );
   };
 
-  /* ---------------------------------------------
+  /* =======================================================
      HEIGHT UPDATE
-
-     THIS IS MANUAL.
-
-     User can type:
-     1
-     5
-     7.5
-     13
-     25.5
-     50
-     100
-  --------------------------------------------- */
+  ======================================================= */
 
   const updateHeight = (
     value: number,
@@ -279,18 +322,24 @@ export function VideoCard({
     const clamped =
       Math.min(
         100,
-        Math.max(0.1, value),
+        Math.max(
+          0.1,
+          value,
+        ),
       );
 
-    onUpdate(item.id, {
-      heightScale:
-        clamped / 100,
-    });
+    onUpdate(
+      item.id,
+      {
+        heightScale:
+          clamped / 100,
+      },
+    );
   };
 
-  /* ---------------------------------------------
+  /* =======================================================
      DURATION UPDATE
-  --------------------------------------------- */
+  ======================================================= */
 
   const updateDuration = (
     value: number,
@@ -304,22 +353,66 @@ export function VideoCard({
     const clamped =
       Math.min(
         100,
-        Math.max(1, value),
+        Math.max(
+          1,
+          value,
+        ),
       );
 
-    onUpdate(item.id, {
-      percent: clamped,
-    });
+    onUpdate(
+      item.id,
+      {
+        percent:
+          clamped,
+      },
+    );
   };
+
+  /* =======================================================
+     CROP UPDATE
+  ======================================================= */
+
+  const updateCrop = (
+    newCrop: typeof crop,
+  ) => {
+    onUpdate(
+      item.id,
+      {
+        crop: newCrop,
+      },
+    );
+  };
+
+  /* =======================================================
+     RESET CROP
+  ======================================================= */
+
+  const resetCrop = () => {
+    onUpdate(
+      item.id,
+      {
+        crop: {
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+        },
+      },
+    );
+  };
+
+  /* =======================================================
+     RETURN
+  ======================================================= */
 
   return (
     <Card className="overflow-hidden">
 
       <CardContent className="space-y-4 pt-6">
 
-        {/* =========================================
+        {/* =================================================
             HEADER
-        ========================================= */}
+        ================================================= */}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
 
@@ -330,14 +423,17 @@ export function VideoCard({
             </p>
 
             <p className="text-sm text-muted-foreground">
+
               {fmtTime(
                 item.duration,
               )}
 
               {" · "}
 
-              {item.width} ×{" "}
+              {item.width}
+              {" × "}
               {item.height}
+
             </p>
 
           </div>
@@ -363,7 +459,9 @@ export function VideoCard({
               size="sm"
               variant="outline"
               onClick={() =>
-                onRemove(item.id)
+                onRemove(
+                  item.id,
+                )
               }
             >
               Remove
@@ -373,9 +471,9 @@ export function VideoCard({
 
         </div>
 
-        {/* =========================================
+        {/* =================================================
             PROCESSING
-        ========================================= */}
+        ================================================= */}
 
         {item.status ===
           "processing" && (
@@ -395,9 +493,9 @@ export function VideoCard({
           </div>
         )}
 
-        {/* =========================================
+        {/* =================================================
             ERROR
-        ========================================= */}
+        ================================================= */}
 
         {item.status ===
           "error" && (
@@ -416,9 +514,9 @@ export function VideoCard({
           </div>
         )}
 
-        {/* =========================================
+        {/* =================================================
             COMPLETED VIDEO
-        ========================================= */}
+        ================================================= */}
 
         {item.status ===
           "done" &&
@@ -433,6 +531,7 @@ export function VideoCard({
                 </p>
 
                 <p className="mt-1 text-xs text-muted-foreground">
+
                   Original{" "}
                   {fmtTime(
                     item.duration,
@@ -449,6 +548,7 @@ export function VideoCard({
 
                   Geotag{" "}
                   {durationPercent}%
+
                 </p>
 
               </div>
@@ -464,15 +564,18 @@ export function VideoCard({
               <Button
                 size="sm"
                 onClick={() => {
+
                   if (
                     item.outputBlob
                   ) {
                     downloadBlob(
                       item.outputBlob,
                       item.outputName ??
+                        item.name ??
                         "geotagged-video.mp4",
                     );
                   }
+
                 }}
               >
                 Download
@@ -481,72 +584,224 @@ export function VideoCard({
             </div>
           )}
 
-        {/* =========================================
+        {/* =================================================
             EDITOR
-        ========================================= */}
+        ================================================= */}
 
         {open && (
           <div className="space-y-6 border-t pt-5">
 
-            {/* =====================================
+            {/* =============================================
                 VIDEO PREVIEW
-            ===================================== */}
+            ============================================= */}
 
-            <div className="relative overflow-hidden rounded-lg bg-black">
+            <div>
 
-              <video
-                ref={videoRef}
-                src={item.url}
-                controls
-                preload="metadata"
-                className="block w-full"
-              />
+              <Label className="mb-2 block text-base">
+                Video Preview
+              </Label>
 
-              {/* -----------------------------------
-                  GEOTAG PREVIEW
-              ----------------------------------- */}
+              <div className="relative overflow-hidden rounded-lg bg-black">
 
-              {overlayUrl &&
-                showOverlay && (
-                  <img
-                    src={
-                      overlayUrl
+                <video
+                  ref={videoRef}
+                  src={item.url}
+                  controls
+                  preload="metadata"
+                  className="block w-full"
+                />
+
+                {/* =========================================
+                    CROP SELECTOR
+                ========================================= */}
+
+                {cropEnabled && (
+                  <CropSelector
+                    videoWidth={
+                      item.width
                     }
-                    alt="Geotag overlay"
-                    className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
-                    style={{
-                      /*
-                       * USER CONTROLS WIDTH
-                       */
-                      width: `${widthPercent}%`,
-
-                      /*
-                       * USER CONTROLS HEIGHT
-                       */
-                      height: `${heightPercent}%`,
-
-                      /*
-                       * IMPORTANT:
-                       *
-                       * fill means the image uses
-                       * exactly the width and height
-                       * selected by the user.
-                       */
-                      objectFit:
-                        "fill",
-
-                      opacity:
-                        item.settings
-                          .opacity,
-                    }}
+                    videoHeight={
+                      item.height
+                    }
+                    crop={crop}
+                    onChange={
+                      updateCrop
+                    }
                   />
                 )}
 
+                {/* =========================================
+                    GEOTAG PREVIEW
+                ========================================= */}
+
+                {!cropEnabled &&
+                  overlayUrl &&
+                  showOverlay && (
+                    <img
+                      src={
+                        overlayUrl
+                      }
+                      alt="Geotag overlay"
+                      className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
+                      style={{
+                        width: `${widthPercent}%`,
+                        height: `${heightPercent}%`,
+                        objectFit:
+                          "fill",
+                        opacity:
+                          item.settings
+                            .opacity,
+                      }}
+                    />
+                  )}
+
+              </div>
+
             </div>
 
-            {/* =====================================
+            {/* =============================================
+                CROP CONTROLS
+            ============================================= */}
+
+            <div className="space-y-4 rounded-lg border p-4">
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+
+                <div>
+
+                  <Label className="text-base">
+                    Video Crop
+                  </Label>
+
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Draw a rectangle over the
+                    video. Only the selected
+                    area will remain in the
+                    exported video.
+                  </p>
+
+                </div>
+
+                <div className="flex gap-2">
+
+                  <Button
+                    size="sm"
+                    variant={
+                      cropEnabled
+                        ? "default"
+                        : "outline"
+                    }
+                    onClick={() =>
+                      setCropEnabled(
+                        (value) =>
+                          !value,
+                      )
+                    }
+                  >
+                    {cropEnabled
+                      ? "Finish Crop"
+                      : "Crop Video"}
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={
+                      resetCrop
+                    }
+                  >
+                    Reset
+                  </Button>
+
+                </div>
+
+              </div>
+
+              {/* =========================================
+                  CROP INFORMATION
+              ========================================= */}
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+
+                <div className="rounded-md bg-muted p-3">
+
+                  <p className="text-xs text-muted-foreground">
+                    X
+                  </p>
+
+                  <p className="font-medium">
+                    {(
+                      crop.x *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </p>
+
+                </div>
+
+                <div className="rounded-md bg-muted p-3">
+
+                  <p className="text-xs text-muted-foreground">
+                    Y
+                  </p>
+
+                  <p className="font-medium">
+                    {(
+                      crop.y *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </p>
+
+                </div>
+
+                <div className="rounded-md bg-muted p-3">
+
+                  <p className="text-xs text-muted-foreground">
+                    Width
+                  </p>
+
+                  <p className="font-medium">
+                    {(
+                      crop.width *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </p>
+
+                </div>
+
+                <div className="rounded-md bg-muted p-3">
+
+                  <p className="text-xs text-muted-foreground">
+                    Height
+                  </p>
+
+                  <p className="font-medium">
+                    {(
+                      crop.height *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </p>
+
+                </div>
+
+              </div>
+
+              {cropEnabled && (
+                <p className="text-xs text-muted-foreground">
+                  Drag the white rectangle to
+                  move it. Drag the bottom-right
+                  handle to resize it.
+                </p>
+              )}
+
+            </div>
+
+            {/* =============================================
                 TRIM
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-4">
 
@@ -584,7 +839,9 @@ export function VideoCard({
                       item.settings
                         .trimStart
                     }
-                    onChange={(event) => {
+                    onChange={(
+                      event,
+                    ) => {
 
                       const value =
                         Number(
@@ -643,7 +900,9 @@ export function VideoCard({
                       item.settings
                         .trimEnd
                     }
-                    onChange={(event) => {
+                    onChange={(
+                      event,
+                    ) => {
 
                       const value =
                         Number(
@@ -686,19 +945,22 @@ export function VideoCard({
               </div>
 
               <p className="text-sm text-muted-foreground">
+
                 Final duration:{" "}
+
                 <strong>
                   {fmtTime(
                     timing.finalDuration,
                   )}
                 </strong>
+
               </p>
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 GEOTAG DURATION
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-4 rounded-lg border p-4">
 
@@ -723,8 +985,6 @@ export function VideoCard({
                 </span>
 
               </div>
-
-              {/* MANUAL DURATION INPUT */}
 
               <div className="flex items-center gap-2">
 
@@ -793,20 +1053,23 @@ export function VideoCard({
               />
 
               <p className="text-sm">
+
                 Geotag visible for{" "}
+
                 <strong>
                   {timing.geotagDuration.toFixed(
                     2,
                   )}{" "}
                   seconds
                 </strong>
+
               </p>
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 TIMING
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-3">
 
@@ -864,9 +1127,9 @@ export function VideoCard({
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 GEOTAG WIDTH
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-4 rounded-lg border p-4">
 
@@ -888,12 +1151,11 @@ export function VideoCard({
                 <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
                   {widthPercent.toFixed(
                     1,
-                  )}%
+                  )}
+                  %
                 </span>
 
               </div>
-
-              {/* MANUAL WIDTH */}
 
               <div className="flex items-center gap-2">
 
@@ -963,9 +1225,9 @@ export function VideoCard({
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 GEOTAG HEIGHT
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-4 rounded-lg border p-4">
 
@@ -987,16 +1249,11 @@ export function VideoCard({
                 <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
                   {heightPercent.toFixed(
                     1,
-                  )}%
+                  )}
+                  %
                 </span>
 
               </div>
-
-              {/* =================================
-                  MANUAL HEIGHT INPUT
-
-                  THIS IS THE IMPORTANT PART
-              ================================= */}
 
               <div className="flex items-center gap-2">
 
@@ -1038,8 +1295,6 @@ export function VideoCard({
 
               </div>
 
-              {/* HEIGHT SLIDER */}
-
               <Slider
                 value={[
                   heightPercent,
@@ -1073,23 +1328,28 @@ export function VideoCard({
                 </p>
 
                 <p className="mt-1 text-xs text-muted-foreground">
+
                   The geotag will occupy{" "}
+
                   <strong>
                     {heightPercent.toFixed(
                       1,
                     )}
                     %
                   </strong>{" "}
-                  of the video's height.
+
+                  of the video's
+                  height.
+
                 </p>
 
               </div>
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 POSITION
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-3">
 
@@ -1100,7 +1360,9 @@ export function VideoCard({
               <div className="flex flex-wrap gap-2">
 
                 {POSITIONS.map(
-                  (position) => (
+                  (
+                    position,
+                  ) => (
                     <Button
                       key={
                         position.key
@@ -1134,9 +1396,9 @@ export function VideoCard({
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 OPACITY
-            ===================================== */}
+            ============================================= */}
 
             <div className="space-y-3">
 
@@ -1147,12 +1409,14 @@ export function VideoCard({
                 </Label>
 
                 <span className="text-sm font-medium">
+
                   {Math.round(
                     item.settings
                       .opacity *
                       100,
                   )}
                   %
+
                 </span>
 
               </div>
@@ -1192,9 +1456,9 @@ export function VideoCard({
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 CURRENT SETTINGS
-            ===================================== */}
+            ============================================= */}
 
             <div className="rounded-lg border bg-muted/30 p-4">
 
@@ -1202,7 +1466,7 @@ export function VideoCard({
                 Current Geotag Settings
               </p>
 
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
 
                 <div>
 
@@ -1213,7 +1477,8 @@ export function VideoCard({
                   <p className="font-medium">
                     {durationPercent.toFixed(
                       1,
-                    )}%
+                    )}
+                    %
                   </p>
 
                 </div>
@@ -1227,7 +1492,8 @@ export function VideoCard({
                   <p className="font-medium">
                     {widthPercent.toFixed(
                       1,
-                    )}%
+                    )}
+                    %
                   </p>
 
                 </div>
@@ -1241,7 +1507,8 @@ export function VideoCard({
                   <p className="font-medium">
                     {heightPercent.toFixed(
                       1,
-                    )}%
+                    )}
+                    %
                   </p>
 
                 </div>
@@ -1257,7 +1524,29 @@ export function VideoCard({
                       item.settings
                         .opacity *
                         100,
-                    )}%
+                    )}
+                    %
+                  </p>
+
+                </div>
+
+                <div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Crop
+                  </p>
+
+                  <p className="font-medium">
+                    {Math.round(
+                      crop.width *
+                        100,
+                    )}
+                    % ×{" "}
+                    {Math.round(
+                      crop.height *
+                        100,
+                    )}
+                    %
                   </p>
 
                 </div>
@@ -1266,9 +1555,9 @@ export function VideoCard({
 
             </div>
 
-            {/* =====================================
+            {/* =============================================
                 APPLY TO ALL
-            ===================================== */}
+            ============================================= */}
 
             <Button
               variant="secondary"
@@ -1287,6 +1576,7 @@ export function VideoCard({
         )}
 
       </CardContent>
+
     </Card>
   );
 }
