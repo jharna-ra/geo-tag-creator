@@ -154,11 +154,10 @@ function Index() {
     }
     setRunning(true);
     const list = [...videos];
-    for (let i = 0; i < list.length; i++) {
-      const item = list[i];
-      setQueueLabel(`Processing ${i + 1} of ${list.length} — ${item.name}`);
+    for (const item of list) {
+      setQueueLabel(`Processing ${list.indexOf(item) + 1} of ${list.length} — ${item.name}`);
       setVideos((vs) =>
-        vs.map((v) => (v.id === item.id ? { ...v, status: "processing", progress: 0, error: undefined } : v)),
+        vs.map((v) => (v.id === item.id ? { ...v, status: "processing", progress: 0 } : v)),
       );
       try {
         const overlayWidth = Math.max(600, Math.round((item.width || 1280) * item.settings.scale));
