@@ -1,20 +1,28 @@
 import type { OverlayPosition } from "./geotag";
-import {
-  DEFAULT_CROP,
-  type CropRect,
-} from "@/lib/crop";
 
-export type GeotagTiming =
-  | "beginning"
-  | "end";
+export type GeotagTiming = "beginning" | "end";
+
+export interface CropRect {
+  /**
+   * Normalized coordinates.
+   *
+   * x      = 0..1
+   * y      = 0..1
+   * width  = 0..1
+   * height = 0..1
+   */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface VideoSettings {
   trimStart: number;
-
   trimEnd: number;
 
   /**
-   * Percentage of the final video
+   * Percentage of the final trimmed video
    * during which the geotag is visible.
    */
   percent: number;
@@ -24,21 +32,16 @@ export interface VideoSettings {
   position: OverlayPosition;
 
   /**
-   * Geotag width as fraction of
-   * video width.
+   * Geotag width relative to cropped video width.
    *
-   * 0.5 = 50%
-   * 1   = 100%
+   * 0.9 = 90%
    */
   scale: number;
 
   /**
-   * Geotag height as fraction of
-   * video height.
+   * Geotag height relative to cropped video height.
    *
    * 0.2 = 20%
-   * 0.5 = 50%
-   * 1   = 100%
    */
   heightScale: number;
 
@@ -51,9 +54,18 @@ export interface VideoSettings {
   opacity: number;
 
   /**
-   * Video crop rectangle.
+   * Crop rectangle.
    *
-   * All values are normalized 0–1.
+   * All values are normalized 0..1.
+   *
+   * Default:
+   *
+   * x = 0
+   * y = 0
+   * width = 1
+   * height = 1
+   *
+   * means the entire video.
    */
   crop: CropRect;
 }
@@ -92,6 +104,13 @@ export interface VideoItem {
   outputBlob?: Blob;
 }
 
+export const DEFAULT_CROP: CropRect = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+
 export const DEFAULT_SETTINGS = (
   duration: number,
 ): VideoSettings => ({
@@ -119,10 +138,7 @@ export const DEFAULT_SETTINGS = (
 export function fmtTime(
   s: number,
 ): string {
-  if (
-    !Number.isFinite(s) ||
-    s < 0
-  ) {
+  if (!Number.isFinite(s) || s < 0) {
     s = 0;
   }
 
