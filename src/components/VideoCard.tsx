@@ -32,9 +32,10 @@ interface Props {
   onApplyToAll: (id: string) => void;
 }
 
-/*
- * Available position buttons.
- */
+/* ---------------------------------------------
+   GEOTAG POSITIONS
+--------------------------------------------- */
+
 const POSITIONS: {
   key: OverlayPosition;
   label: string;
@@ -61,9 +62,10 @@ const POSITIONS: {
   },
 ];
 
-/*
- * Position classes for the preview.
- */
+/* ---------------------------------------------
+   PREVIEW POSITION CLASSES
+--------------------------------------------- */
+
 const POS_CLASS: Record<
   OverlayPosition,
   string
@@ -92,50 +94,73 @@ export function VideoCard({
   onRemove,
   onApplyToAll,
 }: Props) {
-  /*
-   * First video is open by default.
-   */
+  /* ---------------------------------------------
+     OPEN/CLOSE EDITOR
+  --------------------------------------------- */
+
   const [open, setOpen] =
     useState(index === 0);
 
-  /*
-   * Controls whether the preview geotag
-   * is currently visible.
-   */
-  const [showOverlay, setShowOverlay] =
-    useState(true);
+  /* ---------------------------------------------
+     VIDEO REF
+  --------------------------------------------- */
 
-  /*
-   * Video reference.
-   */
   const videoRef =
     useRef<HTMLVideoElement>(null);
 
-  /*
-   * Calculate timing information.
-   *
-   * percent controls duration only.
-   */
+  /* ---------------------------------------------
+     GEOTAG PREVIEW VISIBILITY
+  --------------------------------------------- */
+
+  const [showOverlay, setShowOverlay] =
+    useState(true);
+
+  /* ---------------------------------------------
+     CALCULATE VIDEO TIMING
+  --------------------------------------------- */
+
   const timing =
     computeTiming(item);
 
-  /*
-   * Percentage values used in UI.
-   */
-  const widthPercent = Math.round(
-    item.settings.scale * 100,
-  );
+  /* ---------------------------------------------
+     WIDTH %
 
-  const heightPercent = Math.round(
-    item.settings.heightScale * 100,
-  );
+     scale:
+     0.5 = 50%
+     0.75 = 75%
+     1 = 100%
+  --------------------------------------------- */
 
-  /*
-   * Keep preview geotag synchronized
-   * with the video playback.
-   */
+  const widthPercent =
+    item.settings.scale * 100;
+
+  /* ---------------------------------------------
+     HEIGHT %
+
+     heightScale:
+     0.05 = 5%
+     0.10 = 10%
+     0.235 = 23.5%
+     1 = 100%
+  --------------------------------------------- */
+
+  const heightPercent =
+    item.settings.heightScale * 100;
+
+  /* ---------------------------------------------
+     DURATION %
+  --------------------------------------------- */
+
+  const durationPercent =
+    item.settings.percent;
+
+  /* ---------------------------------------------
+     VIDEO PLAYBACK
+  --------------------------------------------- */
+
   useEffect(() => {
-    const video = videoRef.current;
+    const video =
+      videoRef.current;
 
     if (!video) {
       return;
@@ -143,34 +168,35 @@ export function VideoCard({
 
     const handleTimeUpdate =
       () => {
-        const current =
+        const currentTime =
           video.currentTime;
 
         /*
-         * Stop playback at the selected
-         * trim end.
+         * Stop at selected trim end.
          */
         if (
-          current >=
+          currentTime >=
           timing.end
         ) {
           video.pause();
 
           video.currentTime =
             timing.start;
+
+          return;
         }
 
         /*
-         * Current time relative to
-         * trimmed video.
+         * Convert current video time
+         * into trimmed-video time.
          */
         const relativeTime =
-          current -
+          currentTime -
           timing.start;
 
         /*
-         * Show geotag only during the
-         * selected duration percentage.
+         * Determine whether geotag
+         * should currently be visible.
          */
         const visible =
           relativeTime >=
@@ -178,7 +204,9 @@ export function VideoCard({
           relativeTime <=
             timing.overlayEnd;
 
-        setShowOverlay(visible);
+        setShowOverlay(
+          visible,
+        );
       };
 
     video.addEventListener(
@@ -199,33 +227,59 @@ export function VideoCard({
     timing.overlayEnd,
   ]);
 
-  /*
-   * Update width safely.
-   */
+  /* ---------------------------------------------
+     WIDTH UPDATE
+  --------------------------------------------- */
+
   const updateWidth = (
     value: number,
   ) => {
+    if (
+      !Number.isFinite(value)
+    ) {
+      return;
+    }
+
     const clamped =
       Math.min(
         100,
-        Math.max(10, value),
+        Math.max(0.1, value),
       );
 
     onUpdate(item.id, {
-      scale: clamped / 100,
+      scale:
+        clamped / 100,
     });
   };
 
-  /*
-   * Update height safely.
-   */
+  /* ---------------------------------------------
+     HEIGHT UPDATE
+
+     THIS IS MANUAL.
+
+     User can type:
+     1
+     5
+     7.5
+     13
+     25.5
+     50
+     100
+  --------------------------------------------- */
+
   const updateHeight = (
     value: number,
   ) => {
+    if (
+      !Number.isFinite(value)
+    ) {
+      return;
+    }
+
     const clamped =
       Math.min(
         100,
-        Math.max(5, value),
+        Math.max(0.1, value),
       );
 
     onUpdate(item.id, {
@@ -234,12 +288,19 @@ export function VideoCard({
     });
   };
 
-  /*
-   * Update duration percentage safely.
-   */
-  const updateDurationPercent = (
+  /* ---------------------------------------------
+     DURATION UPDATE
+  --------------------------------------------- */
+
+  const updateDuration = (
     value: number,
   ) => {
+    if (
+      !Number.isFinite(value)
+    ) {
+      return;
+    }
+
     const clamped =
       Math.min(
         100,
@@ -253,25 +314,32 @@ export function VideoCard({
 
   return (
     <Card className="overflow-hidden">
+
       <CardContent className="space-y-4 pt-6">
 
-        {/* ================================================== */}
-        {/* HEADER */}
-        {/* ================================================== */}
+        {/* =========================================
+            HEADER
+        ========================================= */}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
 
           <div className="min-w-0">
+
             <p className="truncate font-medium">
               {item.name}
             </p>
 
             <p className="text-sm text-muted-foreground">
-              {fmtTime(item.duration)}
+              {fmtTime(
+                item.duration,
+              )}
+
               {" · "}
+
               {item.width} ×{" "}
               {item.height}
             </p>
+
           </div>
 
           <div className="flex gap-2">
@@ -302,11 +370,12 @@ export function VideoCard({
             </Button>
 
           </div>
+
         </div>
 
-        {/* ================================================== */}
-        {/* PROCESSING */}
-        {/* ================================================== */}
+        {/* =========================================
+            PROCESSING
+        ========================================= */}
 
         {item.status ===
           "processing" && (
@@ -319,18 +388,19 @@ export function VideoCard({
             />
 
             <p className="text-xs text-muted-foreground">
-              Processing…{" "}
+              Processing...{" "}
               {item.progress}%
             </p>
 
           </div>
         )}
 
-        {/* ================================================== */}
-        {/* ERROR */}
-        {/* ================================================== */}
+        {/* =========================================
+            ERROR
+        ========================================= */}
 
-        {item.status === "error" && (
+        {item.status ===
+          "error" && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
 
             <p className="text-sm font-medium text-destructive">
@@ -346,15 +416,17 @@ export function VideoCard({
           </div>
         )}
 
-        {/* ================================================== */}
-        {/* COMPLETED VIDEO */}
-        {/* ================================================== */}
+        {/* =========================================
+            COMPLETED VIDEO
+        ========================================= */}
 
-        {item.status === "done" &&
+        {item.status ===
+          "done" &&
           item.outputUrl && (
             <div className="space-y-3 rounded-md border p-3">
 
               <div>
+
                 <p className="text-sm font-medium">
                   ✓{" "}
                   {item.outputName}
@@ -365,12 +437,20 @@ export function VideoCard({
                   {fmtTime(
                     item.duration,
                   )}
+
                   {" · "}
+
                   Final{" "}
                   {fmtTime(
                     timing.finalDuration,
                   )}
+
+                  {" · "}
+
+                  Geotag{" "}
+                  {durationPercent}%
                 </p>
+
               </div>
 
               <video
@@ -401,16 +481,16 @@ export function VideoCard({
             </div>
           )}
 
-        {/* ================================================== */}
-        {/* EDITOR */}
-        {/* ================================================== */}
+        {/* =========================================
+            EDITOR
+        ========================================= */}
 
         {open && (
           <div className="space-y-6 border-t pt-5">
 
-            {/* ================================================== */}
-            {/* VIDEO PREVIEW */}
-            {/* ================================================== */}
+            {/* =====================================
+                VIDEO PREVIEW
+            ===================================== */}
 
             <div className="relative overflow-hidden rounded-lg bg-black">
 
@@ -422,7 +502,9 @@ export function VideoCard({
                 className="block w-full"
               />
 
-              {/* GEOTAG PREVIEW */}
+              {/* -----------------------------------
+                  GEOTAG PREVIEW
+              ----------------------------------- */}
 
               {overlayUrl &&
                 showOverlay && (
@@ -430,26 +512,25 @@ export function VideoCard({
                     src={
                       overlayUrl
                     }
-                    alt="Geotag overlay preview"
+                    alt="Geotag overlay"
                     className={`pointer-events-none absolute ${POS_CLASS[item.settings.position]}`}
                     style={{
                       /*
-                       * WIDTH is controlled
-                       * independently.
+                       * USER CONTROLS WIDTH
                        */
                       width: `${widthPercent}%`,
 
                       /*
-                       * HEIGHT is controlled
-                       * independently.
+                       * USER CONTROLS HEIGHT
                        */
                       height: `${heightPercent}%`,
 
                       /*
-                       * Do NOT automatically
-                       * preserve aspect ratio.
+                       * IMPORTANT:
                        *
-                       * User controls both.
+                       * fill means the image uses
+                       * exactly the width and height
+                       * selected by the user.
                        */
                       objectFit:
                         "fill",
@@ -463,21 +544,23 @@ export function VideoCard({
 
             </div>
 
-            {/* ================================================== */}
-            {/* TRIM SETTINGS */}
-            {/* ================================================== */}
+            {/* =====================================
+                TRIM
+            ===================================== */}
 
-            <div className="space-y-3">
+            <div className="space-y-4">
 
               <div>
+
                 <Label className="text-base">
                   Video Trim
                 </Label>
 
                 <p className="text-xs text-muted-foreground">
-                  Select the portion of
-                  the video to export.
+                  Select the part of the
+                  video you want to export.
                 </p>
+
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -485,6 +568,7 @@ export function VideoCard({
                 {/* START */}
 
                 <div className="space-y-2">
+
                   <Label>
                     Start (seconds)
                   </Label>
@@ -500,40 +584,50 @@ export function VideoCard({
                       item.settings
                         .trimStart
                     }
-                    onChange={(
-                      event,
-                    ) => {
+                    onChange={(event) => {
+
                       const value =
                         Number(
                           event.target
                             .value,
                         );
 
-                      const end =
-                        item.settings
-                          .trimEnd;
+                      if (
+                        !Number.isFinite(
+                          value,
+                        )
+                      ) {
+                        return;
+                      }
+
+                      const safeValue =
+                        Math.max(
+                          0,
+                          Math.min(
+                            value,
+                            item.settings
+                              .trimEnd -
+                              0.1,
+                          ),
+                        );
 
                       onUpdate(
                         item.id,
                         {
                           trimStart:
-                            Math.max(
-                              0,
-                              Math.min(
-                                value,
-                                end -
-                                  0.1,
-                              ),
-                            ),
+                            safeValue,
                         },
                       );
+
                     }}
                   />
+
                 </div>
 
                 {/* END */}
 
                 <div className="space-y-2">
+
                   <Label>
                     End (seconds)
                   </Label>
@@ -549,41 +643,50 @@ export function VideoCard({
                       item.settings
                         .trimEnd
                     }
-                    onChange={(
-                      event,
-                    ) => {
+                    onChange={(event) => {
+
                       const value =
                         Number(
                           event.target
                             .value,
                         );
 
-                      const start =
-                        item.settings
-                          .trimStart;
+                      if (
+                        !Number.isFinite(
+                          value,
+                        )
+                      ) {
+                        return;
+                      }
+
+                      const safeValue =
+                        Math.min(
+                          item.duration,
+                          Math.max(
+                            value,
+                            item.settings
+                              .trimStart +
+                              0.1,
+                          ),
+                        );
 
                       onUpdate(
                         item.id,
                         {
                           trimEnd:
-                            Math.min(
-                              item.duration,
-                              Math.max(
-                                value,
-                                start +
-                                  0.1,
-                              ),
-                            ),
+                            safeValue,
                         },
                       );
+
                     }}
                   />
+
                 </div>
 
               </div>
 
               <p className="text-sm text-muted-foreground">
-                Final video duration:{" "}
+                Final duration:{" "}
                 <strong>
                   {fmtTime(
                     timing.finalDuration,
@@ -593,85 +696,87 @@ export function VideoCard({
 
             </div>
 
-            {/* ================================================== */}
-            {/* GEOTAG DURATION */}
-            {/* ================================================== */}
+            {/* =====================================
+                GEOTAG DURATION
+            ===================================== */}
 
             <div className="space-y-4 rounded-lg border p-4">
 
-              <div>
-                <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between">
+
+                <div>
 
                   <Label className="text-base">
                     Geotag Duration
                   </Label>
 
-                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
-                    {
-                      item.settings
-                        .percent
-                    }%
-                  </span>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Percentage of the final
+                    video during which the
+                    geotag is displayed.
+                  </p>
 
                 </div>
 
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Percentage of the final
-                  video duration during which
-                  the geotag is visible.
-                </p>
-              </div>
-
-              {/* QUICK BUTTONS */}
-
-              <div className="flex flex-wrap gap-2">
-
-                {[
-                  10,
-                  20,
-                  30,
-                  40,
-                  50,
-                  75,
-                  100,
-                ].map(
-                  (value) => (
-                    <Button
-                      key={value}
-                      size="sm"
-                      variant={
-                        item.settings
-                          .percent ===
-                        value
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() =>
-                        updateDurationPercent(
-                          value,
-                        )
-                      }
-                    >
-                      {value}%
-                    </Button>
-                  ),
-                )}
+                <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
+                  {durationPercent}%
+                </span>
 
               </div>
 
-              {/* SLIDER */}
+              {/* MANUAL DURATION INPUT */}
+
+              <div className="flex items-center gap-2">
+
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={0.1}
+                  value={
+                    durationPercent
+                  }
+                  onChange={(
+                    event,
+                  ) => {
+
+                    const value =
+                      Number(
+                        event.target
+                          .value,
+                      );
+
+                    if (
+                      Number.isFinite(
+                        value,
+                      )
+                    ) {
+                      updateDuration(
+                        value,
+                      );
+                    }
+
+                  }}
+                  className="w-32"
+                />
+
+                <span className="text-sm text-muted-foreground">
+                  % of duration
+                </span>
+
+              </div>
 
               <Slider
                 value={[
-                  item.settings
-                    .percent,
+                  durationPercent,
                 ]}
                 min={1}
                 max={100}
-                step={1}
+                step={0.1}
                 onValueChange={(
                   values,
                 ) => {
+
                   const value =
                     values[0];
 
@@ -679,10 +784,11 @@ export function VideoCard({
                     value !==
                     undefined
                   ) {
-                    updateDurationPercent(
+                    updateDuration(
                       value,
                     );
                   }
+
                 }}
               />
 
@@ -690,7 +796,7 @@ export function VideoCard({
                 Geotag visible for{" "}
                 <strong>
                   {timing.geotagDuration.toFixed(
-                    1,
+                    2,
                   )}{" "}
                   seconds
                 </strong>
@@ -698,24 +804,17 @@ export function VideoCard({
 
             </div>
 
-            {/* ================================================== */}
-            {/* TIMING */}
-            {/* ================================================== */}
+            {/* =====================================
+                TIMING
+            ===================================== */}
 
             <div className="space-y-3">
 
-              <div>
-                <Label className="text-base">
-                  Geotag Timing
-                </Label>
+              <Label className="text-base">
+                Geotag Timing
+              </Label>
 
-                <p className="text-xs text-muted-foreground">
-                  Choose when the geotag
-                  appears.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2">
 
                 <Button
                   size="sm"
@@ -765,232 +864,238 @@ export function VideoCard({
 
             </div>
 
-            {/* ================================================== */}
-            {/* GEOTAG SIZE */}
-            {/* ================================================== */}
+            {/* =====================================
+                GEOTAG WIDTH
+            ===================================== */}
 
-            <div className="space-y-6 rounded-lg border p-4">
+            <div className="space-y-4 rounded-lg border p-4">
 
-              <div>
-                <Label className="text-base">
-                  Geotag Size
-                </Label>
+              <div className="flex items-center justify-between">
 
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Width and height are
-                  controlled independently.
-                </p>
-              </div>
+                <div>
 
-              {/* ================================================== */}
-              {/* WIDTH */}
-              {/* ================================================== */}
-
-              <div className="space-y-3">
-
-                <div className="flex items-center justify-between">
-
-                  <Label>
+                  <Label className="text-base">
                     Geotag Width
                   </Label>
 
-                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
-                    {widthPercent}%
-                  </span>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Enter the percentage of
+                    video width.
+                  </p>
 
                 </div>
 
-                <Slider
-                  value={[
-                    widthPercent,
-                  ]}
-                  min={10}
+                <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
+                  {widthPercent.toFixed(
+                    1,
+                  )}%
+                </span>
+
+              </div>
+
+              {/* MANUAL WIDTH */}
+
+              <div className="flex items-center gap-2">
+
+                <Input
+                  type="number"
+                  min={0.1}
                   max={100}
-                  step={1}
-                  onValueChange={(
-                    values,
+                  step={0.1}
+                  value={
+                    widthPercent
+                  }
+                  onChange={(
+                    event,
                   ) => {
+
                     const value =
-                      values[0];
+                      Number(
+                        event.target
+                          .value,
+                      );
 
                     if (
-                      value !==
-                      undefined
+                      Number.isFinite(
+                        value,
+                      )
                     ) {
                       updateWidth(
                         value,
                       );
                     }
+
                   }}
+                  className="w-32"
                 />
 
-                {/* QUICK WIDTH */}
-
-                <div className="flex flex-wrap gap-2">
-
-                  {[
-                    25,
-                    50,
-                    75,
-                    90,
-                    100,
-                  ].map(
-                    (value) => (
-                      <Button
-                        key={value}
-                        size="sm"
-                        variant={
-                          widthPercent ===
-                          value
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() =>
-                          updateWidth(
-                            value,
-                          )
-                        }
-                      >
-                        {value}%
-                      </Button>
-                    ),
-                  )}
-
-                </div>
+                <span className="text-sm text-muted-foreground">
+                  % of video width
+                </span>
 
               </div>
 
-              {/* ================================================== */}
-              {/* HEIGHT */}
-              {/* ================================================== */}
+              <Slider
+                value={[
+                  widthPercent,
+                ]}
+                min={0.1}
+                max={100}
+                step={0.1}
+                onValueChange={(
+                  values,
+                ) => {
 
-              <div className="space-y-3">
+                  const value =
+                    values[0];
 
-                <div className="flex items-center justify-between">
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateWidth(
+                      value,
+                    );
+                  }
 
-                  <Label>
+                }}
+              />
+
+            </div>
+
+            {/* =====================================
+                GEOTAG HEIGHT
+            ===================================== */}
+
+            <div className="space-y-4 rounded-lg border p-4">
+
+              <div className="flex items-center justify-between">
+
+                <div>
+
+                  <Label className="text-base">
                     Geotag Height
                   </Label>
 
-                  <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
-                    {heightPercent}%
-                  </span>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Enter any percentage of
+                    the video's height.
+                  </p>
 
                 </div>
 
-                <Slider
-                  value={[
-                    heightPercent,
-                  ]}
-                  min={5}
+                <span className="rounded-md bg-muted px-2 py-1 text-sm font-medium">
+                  {heightPercent.toFixed(
+                    1,
+                  )}%
+                </span>
+
+              </div>
+
+              {/* =================================
+                  MANUAL HEIGHT INPUT
+
+                  THIS IS THE IMPORTANT PART
+              ================================= */}
+
+              <div className="flex items-center gap-2">
+
+                <Input
+                  type="number"
+                  min={0.1}
                   max={100}
-                  step={1}
-                  onValueChange={(
-                    values,
+                  step={0.1}
+                  value={
+                    heightPercent
+                  }
+                  onChange={(
+                    event,
                   ) => {
+
                     const value =
-                      values[0];
+                      Number(
+                        event.target
+                          .value,
+                      );
 
                     if (
-                      value !==
-                      undefined
+                      Number.isFinite(
+                        value,
+                      )
                     ) {
                       updateHeight(
                         value,
                       );
                     }
+
                   }}
+                  className="w-32"
                 />
 
-                {/* QUICK HEIGHT */}
-
-                <div className="flex flex-wrap gap-2">
-
-                  {[
-                    10,
-                    15,
-                    20,
-                    25,
-                    30,
-                    40,
-                    50,
-                    75,
-                    100,
-                  ].map(
-                    (value) => (
-                      <Button
-                        key={value}
-                        size="sm"
-                        variant={
-                          heightPercent ===
-                          value
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() =>
-                          updateHeight(
-                            value,
-                          )
-                        }
-                      >
-                        {value}%
-                      </Button>
-                    ),
-                  )}
-
-                </div>
+                <span className="text-sm text-muted-foreground">
+                  % of video height
+                </span>
 
               </div>
 
-              {/* ================================================== */}
-              {/* SIZE SUMMARY */}
-              {/* ================================================== */}
+              {/* HEIGHT SLIDER */}
+
+              <Slider
+                value={[
+                  heightPercent,
+                ]}
+                min={0.1}
+                max={100}
+                step={0.1}
+                onValueChange={(
+                  values,
+                ) => {
+
+                  const value =
+                    values[0];
+
+                  if (
+                    value !==
+                    undefined
+                  ) {
+                    updateHeight(
+                      value,
+                    );
+                  }
+
+                }}
+              />
 
               <div className="rounded-md bg-muted p-3">
 
                 <p className="text-sm font-medium">
-                  Current Geotag Size
+                  Current Height
                 </p>
 
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Width:{" "}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The geotag will occupy{" "}
                   <strong>
-                    {widthPercent}%
-                  </strong>
-                  {" · "}
-                  Height:{" "}
-                  <strong>
-                    {heightPercent}%
-                  </strong>
-                </p>
-
-                <p className="mt-2 text-xs text-muted-foreground">
-                  The exported geotag will
-                  use exactly these width and
-                  height percentages relative
-                  to the video.
+                    {heightPercent.toFixed(
+                      1,
+                    )}
+                    %
+                  </strong>{" "}
+                  of the video's height.
                 </p>
 
               </div>
 
             </div>
 
-            {/* ================================================== */}
-            {/* POSITION */}
-            {/* ================================================== */}
+            {/* =====================================
+                POSITION
+            ===================================== */}
 
             <div className="space-y-3">
 
-              <div>
-                <Label className="text-base">
-                  Geotag Position
-                </Label>
-
-                <p className="text-xs text-muted-foreground">
-                  Choose where the geotag is
-                  placed on the video.
-                </p>
-              </div>
+              <Label className="text-base">
+                Geotag Position
+              </Label>
 
               <div className="flex flex-wrap gap-2">
 
@@ -1029,9 +1134,9 @@ export function VideoCard({
 
             </div>
 
-            {/* ================================================== */}
-            {/* OPACITY */}
-            {/* ================================================== */}
+            {/* =====================================
+                OPACITY
+            ===================================== */}
 
             <div className="space-y-3">
 
@@ -1058,12 +1163,13 @@ export function VideoCard({
                     .opacity *
                     100,
                 ]}
-                min={10}
+                min={1}
                 max={100}
                 step={1}
                 onValueChange={(
                   values,
                 ) => {
+
                   const value =
                     values[0];
 
@@ -1080,87 +1186,93 @@ export function VideoCard({
                       },
                     );
                   }
+
                 }}
               />
 
             </div>
 
-            {/* ================================================== */}
-            {/* SETTINGS SUMMARY */}
-            {/* ================================================== */}
+            {/* =====================================
+                CURRENT SETTINGS
+            ===================================== */}
 
             <div className="rounded-lg border bg-muted/30 p-4">
 
               <p className="mb-3 text-sm font-semibold">
-                Geotag Settings
+                Current Geotag Settings
               </p>
 
-              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
 
                 <div>
+
                   <p className="text-xs text-muted-foreground">
                     Duration
                   </p>
 
                   <p className="font-medium">
-                    {
-                      item.settings
-                        .percent
-                    }%
+                    {durationPercent.toFixed(
+                      1,
+                    )}%
                   </p>
+
                 </div>
 
                 <div>
+
                   <p className="text-xs text-muted-foreground">
                     Width
                   </p>
 
                   <p className="font-medium">
-                    {widthPercent}%
+                    {widthPercent.toFixed(
+                      1,
+                    )}%
                   </p>
+
                 </div>
 
                 <div>
+
                   <p className="text-xs text-muted-foreground">
                     Height
                   </p>
 
                   <p className="font-medium">
-                    {heightPercent}%
+                    {heightPercent.toFixed(
+                      1,
+                    )}%
                   </p>
+
                 </div>
 
                 <div>
+
                   <p className="text-xs text-muted-foreground">
-                    Position
+                    Opacity
                   </p>
 
                   <p className="font-medium">
-                    {
-                      POSITIONS.find(
-                        (p) =>
-                          p.key ===
-                          item
-                            .settings
-                            .position,
-                      )?.label ??
+                    {Math.round(
                       item.settings
-                        .position
-                    }
+                        .opacity *
+                        100,
+                    )}%
                   </p>
+
                 </div>
 
               </div>
 
             </div>
 
-            {/* ================================================== */}
-            {/* APPLY TO ALL */}
-            {/* ================================================== */}
+            {/* =====================================
+                APPLY TO ALL
+            ===================================== */}
 
             <Button
-              className="w-full sm:w-auto"
               variant="secondary"
+              className="w-full"
               onClick={() =>
                 onApplyToAll(
                   item.id,
