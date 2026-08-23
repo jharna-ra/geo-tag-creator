@@ -1,120 +1,370 @@
 import { fetchFile } from "@ffmpeg/util";
+
 import { getFFmpeg } from "./ffmpeg";
+
 import type { OverlayPosition } from "@/types/geotag";
 import type { VideoItem } from "@/types/video";
 
-export function overlayXY(position: OverlayPosition, margin: number): { x: string; y: string } {
+export function overlayXY(
+  position: OverlayPosition,
+  margin: number,
+): {
+  x: string;
+  y: string;
+} {
   const m = String(margin);
+
   switch (position) {
     case "top-left":
-      return { x: m, y: m };
+      return {
+        x: m,
+        y: m,
+      };
+
     case "top-right":
-      return { x: `main_w-overlay_w-${m}`, y: m };
+      return {
+        x: `main_w-overlay_w-${m}`,
+        y: m,
+      };
+
     case "bottom-left":
-      return { x: m, y: `main_h-overlay_h-${m}` };
+      return {
+        x: m,
+        y: `main_h-overlay_h-${m}`,
+      };
+
     case "bottom-right":
-      return { x: `main_w-overlay_w-${m}`, y: `main_h-overlay_h-${m}` };
+      return {
+        x: `main_w-overlay_w-${m}`,
+        y: `main_h-overlay_h-${m}`,
+      };
+
     case "bottom-center":
     default:
-      return { x: "(main_w-overlay_w)/2", y: `main_h-overlay_h-${m}` };
+      return {
+        x: "(main_w-overlay_w)/2",
+        y: `main_h-overlay_h-${m}`,
+      };
   }
 }
 
-export function computeTiming(item: VideoItem) {
-  const start = Math.max(0, Math.min(item.settings.trimStart, item.duration));
-  const end = Math.max(start + 0.1, Math.min(item.settings.trimEnd, item.duration || item.settings.trimEnd));
-  const finalDuration = end - start;
-  const geotagDuration = (finalDuration * item.settings.percent) / 100;
-  const overlayStart = item.settings.timing === "beginning" ? 0 : Math.max(0, finalDuration - geotagDuration);
-  const overlayEnd = overlayStart + geotagDuration;
-  return { start, end, finalDuration, geotagDuration, overlayStart, overlayEnd };
+export function computeTiming(
+  item: VideoItem,
+) {
+  const start = Math.max(
+    0,
+    Math.min(
+      item.settings.trimStart,
+      item.duration,
+    ),
+  );
+
+  const end = Math.max(
+    start + 0.1,
+    Math.min(
+      item.settings.trimEnd,
+      item.duration ||
+        item.settings.trimEnd,
+    ),
+  );
+
+  const finalDuration =
+    end - start;
+
+  /*
+   * IMPORTANT:
+   *
+   * percent = DURATION percentage.
+   *
+   * It does NOT control geotag size.
+   */
+  const geotagDuration =
+    (finalDuration *
+      item.settings.percent) /
+    100;
+
+  const overlayStart =
+    item.settings.timing ===
+    "beginning"
+      ? 0
+      : Math.max(
+          0,
+          finalDuration -
+            geotagDuration,
+        );
+
+  const overlayEnd =
+    overlayStart +
+    geotagDuration;
+
+  return {
+    start,
+    end,
+    finalDuration,
+    geotagDuration,
+    overlayStart,
+    overlayEnd,
+  };
 }
 
 export interface ProcessArgs {
   item: VideoItem;
+
   overlayPng: Blob;
-  onProgress: (p: number) => void;
+
+  onProgress: (
+    p: number,
+  ) => void;
 }
 
-export async function processVideo({ item, overlayPng, onProgress }: ProcessArgs): Promise<Blob> {
-  const ffmpeg = await getFFmpeg();
-  const { start, finalDuration, overlayStart, overlayEnd } = computeTiming(item);
+export async function processVideo({
+  item,
+  overlayPng,
+  onProgress,
+}: ProcessArgs): Promise<Blob> {
+  const ffmpeg =
+    await getFFmpeg();
 
-  const inName = `in_${item.id}.${(item.file.name.split(".").pop() || "mp4").toLowerCase()}`;
-  const pngName = `ov_${item.id}.png`;
-  const outFile = `out_${item.id}.mp4`;
+  const {
+    start,
+    finalDuration,
+    overlayStart,
+    overlayEnd,
+  } = computeTiming(item);
 
-  const handler = ({ progress }: { progress: number }) => {
-    const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+  const inName =
+    `in_${item.id}.` +
+    (
+      item.file.name
+        .split(".")
+        .pop() ||
+      "mp4"
+    ).toLowerCase();
+
+  const pngName =
+    `ov_${item.id}.png`;
+
+  const outFile =
+    `out_${item.id}.mp4`;
+
+  const handler = ({
+    progress,
+  }: {
+    progress: number;
+  }) => {
+    const pct = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          progress * 100,
+        ),
+      ),
+    );
+
     onProgress(pct);
   };
-  ffmpeg.on("progress", handler);
+
+  ffmpeg.on(
+    "progress",
+    handler,
+  );
 
   try {
-    await ffmpeg.writeFile(inName, await fetchFile(item.file));
-    await ffmpeg.writeFile(pngName, await fetchFile(overlayPng));
+    await ffmpeg.writeFile(
+      inName,
+      await fetchFile(
+        item.file,
+      ),
+    );
 
-    const overlayW = Math.round((item.width || 1280) * item.settings.scale);
-    const { x, y } = overlayXY(item.settings.position, 0);
-    const alpha = item.settings.opacity;
+    await ffmpeg.writeFile(
+      pngName,
+      await fetchFile(
+        overlayPng,
+      ),
+    );
 
+    /*
+     * scale is a FRACTION:
+     *
+     * 0.25 = 25%
+     * 0.50 = 50%
+     * 0.75 = 75%
+     * 1.00 = 100%
+     */
+    const scale = Math.max(
+      0.1,
+      Math.min(
+        1,
+        item.settings.scale,
+      ),
+    );
+
+    /*
+     * Use the ACTUAL video width.
+     *
+     * If video width = 1920
+     * and scale = 1.0:
+     *
+     * overlayW = 1920
+     *
+     * If scale = 0.75:
+     *
+     * overlayW = 1440
+     *
+     * If scale = 0.5:
+     *
+     * overlayW = 960
+     *
+     * -1 keeps the geotag's aspect ratio.
+     */
+    const overlayW =
+      `main_w*${scale}`;
+
+    const {
+      x,
+      y,
+    } = overlayXY(
+      item.settings.position,
+      0,
+    );
+
+    const alpha =
+      Math.max(
+        0,
+        Math.min(
+          1,
+          item.settings.opacity,
+        ),
+      );
+
+    /*
+     * FFmpeg filter:
+     *
+     * 1. Resize geotag based on video width.
+     * 2. Keep original aspect ratio.
+     * 3. Apply opacity.
+     * 4. Overlay at selected position.
+     * 5. Show only during selected
+     *    percentage of video duration.
+     */
     const filter =
-      `[1:v]scale=${overlayW}:-1,format=rgba,colorchannelmixer=aa=${alpha}[ov];` +
-      `[0:v][ov]overlay=${x}:${y}:enable='between(t,${overlayStart.toFixed(3)},${overlayEnd.toFixed(
+      `[1:v]` +
+      `scale=${overlayW}:-1,` +
+      `format=rgba,` +
+      `colorchannelmixer=aa=${alpha}` +
+      `[ov];` +
+
+      `[0:v][ov]` +
+      `overlay=${x}:${y}` +
+      `:enable='between(t,${overlayStart.toFixed(
         3,
-      )})':format=auto[v]`;
+      )},${overlayEnd.toFixed(
+        3,
+      )})'` +
+      `:format=auto[v]`;
 
     const args = [
       "-ss",
       start.toFixed(3),
+
       "-i",
       inName,
+
       "-loop",
       "1",
+
       "-i",
       pngName,
+
       "-filter_complex",
       filter,
+
       "-map",
       "[v]",
+
       "-map",
       "0:a?",
+
       "-t",
       finalDuration.toFixed(3),
+
       "-c:v",
       "libx264",
+
       "-preset",
       "ultrafast",
+
       "-crf",
       "26",
+
       "-pix_fmt",
       "yuv420p",
+
       "-c:a",
       "aac",
+
       "-b:a",
       "128k",
+
       "-movflags",
       "+faststart",
+
       outFile,
     ];
 
-    const code = await ffmpeg.exec(args);
-    if (code !== 0) throw new Error("encode-failed");
+    const code =
+      await ffmpeg.exec(
+        args,
+      );
 
-    const data = (await ffmpeg.readFile(outFile)) as Uint8Array;
-    const copy = new Uint8Array(data);
-    return new Blob([copy], { type: "video/mp4" });
+    if (code !== 0) {
+      throw new Error(
+        "encode-failed",
+      );
+    }
+
+    const data =
+      (await ffmpeg.readFile(
+        outFile,
+      )) as Uint8Array;
+
+    const copy =
+      new Uint8Array(data);
+
+    return new Blob(
+      [copy],
+      {
+        type: "video/mp4",
+      },
+    );
   } catch (e) {
+    console.error(
+      "Video processing error:",
+      e,
+    );
+
     throw new Error(
       "Unable to process this video in your browser. Try using an MP4 video or a shorter/smaller video.",
     );
   } finally {
-    ffmpeg.off("progress", handler);
-    for (const f of [inName, pngName, outFile]) {
+    ffmpeg.off(
+      "progress",
+      handler,
+    );
+
+    for (const file of [
+      inName,
+      pngName,
+      outFile,
+    ]) {
       try {
-        await ffmpeg.deleteFile(f);
+        await ffmpeg.deleteFile(
+          file,
+        );
       } catch {
-        /* ignore */
+        // Ignore cleanup errors.
       }
     }
   }
