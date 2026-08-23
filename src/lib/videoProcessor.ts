@@ -101,7 +101,7 @@ export async function processVideo({ item, overlayPng, onProgress }: ProcessArgs
 
     const data = (await ffmpeg.readFile(outFile)) as Uint8Array;
     const copy = new Uint8Array(data);
-    return new Blob([copy.buffer as ArrayBuffer], { type: "video/mp4" });
+    return new Blob([copy], { type: "video/mp4" });
   } catch (e) {
     throw new Error(
       "Unable to process this video in your browser. Try using an MP4 video or a shorter/smaller video.",
