@@ -1,4 +1,5 @@
 import { fetchFile } from "@ffmpeg/util";
+
 import { getFFmpeg } from "./ffmpeg";
 
 import type { OverlayPosition } from "@/types/geotag";
@@ -11,7 +12,7 @@ export function overlayXY(
   x: string;
   y: string;
 } {
-  const m = String(margin);
+  const m = String(Math.max(0, margin));
 
   switch (position) {
     case "top-left":
@@ -48,23 +49,56 @@ export function overlayXY(
 }
 
 export function computeTiming(item: VideoItem) {
+  const duration = Number(item.duration);
+
+  /*
+   * A video with an invalid duration must not be processed.
+   */
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return {
+      start: 0,
+      end: 0,
+      finalDuration: 0,
+      geotagDuration: 0,
+      overlayStart: 0,
+      overlayEnd: 0,
+    };
+  }
+
+  const trimStart = Number(item.settings.trimStart);
+  const trimEnd = Number(item.settings.trimEnd);
+
   const start = Math.max(
     0,
-    Math.min(item.settings.trimStart, item.duration),
+    Math.min(
+      Number.isFinite(trimStart) ? trimStart : 0,
+      duration,
+    ),
   );
 
   const end = Math.max(
     start + 0.1,
     Math.min(
-      item.settings.trimEnd,
-      item.duration || item.settings.trimEnd,
+      Number.isFinite(trimEnd) ? trimEnd : duration,
+      duration,
     ),
   );
 
-  const finalDuration = end - start;
+  const finalDuration = Math.max(
+    0.1,
+    end - start,
+  );
+
+  const percent = Math.max(
+    1,
+    Math.min(
+      100,
+      Number(item.settings.percent) || 1,
+    ),
+  );
 
   const geotagDuration =
-    (finalDuration * item.settings.percent) / 100;
+    (finalDuration * percent) / 100;
 
   const overlayStart =
     item.settings.timing === "beginning"
@@ -75,7 +109,10 @@ export function computeTiming(item: VideoItem) {
         );
 
   const overlayEnd =
-    overlayStart + geotagDuration;
+    Math.min(
+      finalDuration,
+      overlayStart + geotagDuration,
+    );
 
   return {
     start,
@@ -90,78 +127,113 @@ export function computeTiming(item: VideoItem) {
 export interface ProcessArgs {
   item: VideoItem;
 
-  /**
-   * This is now the USER-UPLOADED
+  /*
+   * This is now the user's uploaded
    * geotag image.
-   *
-   * It can be PNG or JPG.
    */
-  geotagImage: Blob;
+  overlayPng: Blob;
 
   onProgress: (p: number) => void;
 }
 
 export async function processVideo({
   item,
-  geotagImage,
+  overlayPng,
   onProgress,
 }: ProcessArgs): Promise<Blob> {
-  const ffmpeg = await getFFmpeg();
+  /*
+   * ------------------------------------------------------------
+   * VALIDATE VIDEO
+   * ------------------------------------------------------------
+   */
+
+  if (!item) {
+    throw new Error("No video was supplied.");
+  }
+
+  if (!(item.file instanceof File)) {
+    throw new Error(
+      "The selected video file is invalid. Please upload the video again.",
+    );
+  }
+
+  if (item.file.size <= 0) {
+    throw new Error(
+      "The selected video file is empty.",
+    );
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * VALIDATE GEOTAG IMAGE
+   * ------------------------------------------------------------
+   */
+
+  if (!(overlayPng instanceof Blob)) {
+    throw new Error(
+      "The geotag image is invalid. Please upload the geotag image again.",
+    );
+  }
+
+  if (overlayPng.size <= 0) {
+    throw new Error(
+      "The geotag image is empty.",
+    );
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * TIMING
+   * ------------------------------------------------------------
+   */
+
+  const timing = computeTiming(item);
+
+  if (timing.finalDuration <= 0) {
+    throw new Error(
+      "Could not determine the video duration. Please remove the video and upload it again.",
+    );
+  }
 
   const {
     start,
     finalDuration,
     overlayStart,
     overlayEnd,
-  } = computeTiming(item);
+  } = timing;
 
   /*
-   * ----------------------------------------------------
-   * INPUT VIDEO
-   * ----------------------------------------------------
+   * ------------------------------------------------------------
+   * FFMPEG
+   * ------------------------------------------------------------
    */
 
-  const videoExtension =
-    item.file.name.split(".").pop() || "mp4";
-
-  const inName =
-    `in_${item.id}.${videoExtension}`.toLowerCase();
+  const ffmpeg = await getFFmpeg();
 
   /*
-   * ----------------------------------------------------
-   * USER GEOTAG IMAGE
-   * ----------------------------------------------------
-   *
-   * Do NOT create or render a geotag here.
-   *
-   * The image comes directly from the user.
+   * ------------------------------------------------------------
+   * FILE NAMES
+   * ------------------------------------------------------------
    */
 
-  const imageType =
-    geotagImage.type.toLowerCase();
+  const extension =
+    item.file.name
+      .split(".")
+      .pop()
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]/g, "") ||
+    "mp4";
 
-  let imageExtension = "png";
+  const inName = `input_${item.id}.${extension}`;
 
-  if (imageType.includes("jpeg") || imageType.includes("jpg")) {
-    imageExtension = "jpg";
-  }
+  const pngName = `geotag_${item.id}.png`;
 
-  const imageName =
-    `geotag_${item.id}.${imageExtension}`;
-
-  /*
-   * ----------------------------------------------------
-   * OUTPUT
-   * ----------------------------------------------------
-   */
-
-  const outFile =
-    `out_${item.id}.mp4`;
+  const outFile = `output_${item.id}.mp4`;
 
   /*
-   * ----------------------------------------------------
+   * ------------------------------------------------------------
    * PROGRESS
-   * ----------------------------------------------------
+   * ------------------------------------------------------------
    */
 
   const handler = ({
@@ -184,47 +256,66 @@ export async function processVideo({
 
   try {
     /*
-     * --------------------------------------------------
-     * WRITE VIDEO TO FFMPEG
-     * --------------------------------------------------
+     * ----------------------------------------------------------
+     * WRITE VIDEO
+     * ----------------------------------------------------------
      */
+
+    const videoData = await fetchFile(
+      item.file,
+    );
+
+    if (!videoData) {
+      throw new Error(
+        "Could not read the uploaded video.",
+      );
+    }
 
     await ffmpeg.writeFile(
       inName,
-      await fetchFile(item.file),
+      videoData,
     );
 
     /*
-     * --------------------------------------------------
-     * WRITE USER GEOTAG IMAGE TO FFMPEG
-     * --------------------------------------------------
+     * ----------------------------------------------------------
+     * WRITE GEOTAG IMAGE
+     *
+     * IMPORTANT:
+     *
+     * This is the exact image uploaded by the user.
+     *
+     * We do NOT generate it.
+     * We do NOT redraw it.
+     * We do NOT modify its design.
+     * ----------------------------------------------------------
      */
 
+    const imageData = await fetchFile(
+      overlayPng,
+    );
+
+    if (!imageData) {
+      throw new Error(
+        "Could not read the uploaded geotag image.",
+      );
+    }
+
     await ffmpeg.writeFile(
-      imageName,
-      await fetchFile(geotagImage),
+      pngName,
+      imageData,
     );
 
     /*
-     * --------------------------------------------------
-     * OVERLAY SIZE
-     * --------------------------------------------------
-     *
-     * scale:
-     *   1.0 = 100% video width
-     *   0.75 = 75%
-     *   0.50 = 50%
-     *
-     * heightScale:
-     *   0.20 = 20% video height
-     *   0.50 = 50%
+     * ----------------------------------------------------------
+     * GEOTAG SIZE
+     * ----------------------------------------------------------
      */
 
     const widthScale = Math.max(
       0.01,
       Math.min(
         1,
-        item.settings.scale,
+        Number(item.settings.scale) || 0.9,
       ),
     );
 
@@ -232,9 +323,16 @@ export async function processVideo({
       0.01,
       Math.min(
         1,
-        item.settings.heightScale,
+        Number(item.settings.heightScale) || 0.2,
       ),
     );
+
+    /*
+     * Scale according to the VIDEO dimensions.
+     *
+     * The original geotag image keeps its content.
+     * FFmpeg only scales the overlay.
+     */
 
     const overlayW =
       `main_w*${widthScale}`;
@@ -243,44 +341,34 @@ export async function processVideo({
       `main_h*${heightScale}`;
 
     /*
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      * POSITION
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      */
 
-    const {
-      x,
-      y,
-    } = overlayXY(
+    const { x, y } = overlayXY(
       item.settings.position,
       0,
     );
 
     /*
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      * OPACITY
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      */
 
     const alpha = Math.max(
       0,
       Math.min(
         1,
-        item.settings.opacity,
+        Number(item.settings.opacity) || 1,
       ),
     );
 
     /*
-     * --------------------------------------------------
-     * FFMPEG FILTER
-     * --------------------------------------------------
-     *
-     * [0:v] = video
-     *
-     * [1:v] = USER'S GEOTAG IMAGE
-     *
-     * We resize the uploaded image and
-     * place it over the video.
+     * ----------------------------------------------------------
+     * FILTER
+     * ----------------------------------------------------------
      */
 
     const filter =
@@ -301,109 +389,91 @@ export async function processVideo({
       `[v]`;
 
     /*
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      * FFMPEG COMMAND
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      */
 
     const args = [
-      /*
-       * Start position
-       */
       "-ss",
       start.toFixed(3),
 
-      /*
-       * Video
-       */
       "-i",
       inName,
 
       /*
-       * Geotag image
-       *
-       * Loop it so it remains available
-       * for the entire video.
+       * Keep image available for entire video.
        */
       "-loop",
       "1",
 
       "-i",
-      imageName,
+      pngName,
 
-      /*
-       * Filter
-       */
       "-filter_complex",
       filter,
 
-      /*
-       * Video output
-       */
       "-map",
       "[v]",
 
       /*
-       * Keep original audio if present
+       * Copy original audio stream.
        */
       "-map",
       "0:a?",
 
-      /*
-       * Final duration
-       */
       "-t",
       finalDuration.toFixed(3),
 
-      /*
-       * Video codec
-       */
       "-c:v",
       "libx264",
 
-      /*
-       * Fast browser processing
-       */
       "-preset",
       "ultrafast",
 
-      /*
-       * Quality
-       */
       "-crf",
       "26",
 
-      /*
-       * Compatibility
-       */
       "-pix_fmt",
       "yuv420p",
 
-      /*
-       * Audio
-       */
       "-c:a",
       "aac",
 
       "-b:a",
       "128k",
 
-      /*
-       * Better playback after download
-       */
       "-movflags",
       "+faststart",
 
-      /*
-       * Output
-       */
       outFile,
     ];
 
+    console.log(
+      "FFmpeg input:",
+      item.file.name,
+    );
+
+    console.log(
+      "FFmpeg geotag:",
+      overlayPng.type,
+      overlayPng.size,
+    );
+
+    console.log(
+      "FFmpeg timing:",
+      timing,
+    );
+
+    console.log(
+      "FFmpeg args:",
+      args,
+    );
+
     /*
-     * --------------------------------------------------
-     * RUN FFMPEG
-     * --------------------------------------------------
+     * ----------------------------------------------------------
+     * EXECUTE
+     * ----------------------------------------------------------
      */
 
     const code =
@@ -411,28 +481,35 @@ export async function processVideo({
 
     if (code !== 0) {
       throw new Error(
-        "FFmpeg encoding failed.",
+        `FFmpeg failed with exit code ${code}.`,
       );
     }
 
     /*
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      * READ OUTPUT
-     * --------------------------------------------------
+     * ----------------------------------------------------------
      */
 
-    const data =
-      (await ffmpeg.readFile(
+    const output =
+      await ffmpeg.readFile(
         outFile,
-      )) as Uint8Array;
+      );
+
+    if (!output) {
+      throw new Error(
+        "FFmpeg did not produce an output video.",
+      );
+    }
 
     /*
-     * Make a separate copy because
-     * FFmpeg's memory can be reused.
+     * Convert to a clean Uint8Array.
      */
 
     const copy =
-      new Uint8Array(data);
+      new Uint8Array(
+        output as Uint8Array,
+      );
 
     return new Blob(
       [copy],
@@ -446,30 +523,42 @@ export async function processVideo({
       error,
     );
 
+    /*
+     * Preserve useful validation messages.
+     */
+    if (
+      error instanceof Error &&
+      (
+        error.message.includes(
+          "Please",
+        ) ||
+        error.message.includes(
+          "invalid",
+        ) ||
+        error.message.includes(
+          "empty",
+        )
+      )
+    ) {
+      throw error;
+    }
+
     throw new Error(
-      "Unable to process this video in your browser. Try using an MP4 video or a shorter/smaller video.",
+      "Unable to process this video in your browser. Please upload an MP4 video and try again.",
     );
   } finally {
-    /*
-     * --------------------------------------------------
-     * REMOVE PROGRESS LISTENER
-     * --------------------------------------------------
-     */
-
     ffmpeg.off(
       "progress",
       handler,
     );
 
     /*
-     * --------------------------------------------------
-     * CLEAN FFMPEG MEMORY
-     * --------------------------------------------------
+     * Cleanup FFmpeg files.
      */
 
     for (const file of [
       inName,
-      imageName,
+      pngName,
       outFile,
     ]) {
       try {
@@ -477,7 +566,7 @@ export async function processVideo({
           file,
         );
       } catch {
-        // Ignore cleanup errors
+        // Cleanup failure can be ignored.
       }
     }
   }
