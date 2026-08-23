@@ -1,13 +1,10 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { toBlobURL } from "@ffmpeg/util";
+// Vite bundles these as static assets and gives you a same-origin URL
+import coreURL from "@ffmpeg/core/dist/esm/ffmpeg-core.js?url";
+import wasmURL from "@ffmpeg/core/dist/esm/ffmpeg-core.wasm?url";
 
 let ffmpeg: FFmpeg | null = null;
 let loading: Promise<FFmpeg> | null = null;
-
-const CORE_SOURCES = [
-  "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm",
-  "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm",
-];
 
 export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (ffmpeg) return ffmpeg;
@@ -17,25 +14,19 @@ export async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> 
     const instance = new FFmpeg();
     instance.on("log", ({ message }) => onLog?.(message));
 
-    let lastError: unknown;
-
-    for (const CORE_URL of CORE_SOURCES) {
-      try {
-        await instance.load({
-          coreURL: await toBlobURL(`${CORE_URL}/ffmpeg-core.js`, "text/javascript"),
-          wasmURL: await toBlobURL(`${CORE_URL}/ffmpeg-core.wasm`, "application/wasm"),
-        });
-        ffmpeg = instance;
-        return instance;
-      } catch (err) {
-        console.error(`FFmpeg core load failed from ${CORE_URL}:`, err);
-        lastError = err;
-      }
+    try {
+      await instance.load({
+        coreURL,
+        wasmURL,
+      });
+      ffmpeg = instance;
+      return instance;
+    } catch (err) {
+      loading = null;
+      console.error("FFmpeg core load failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Could not load the video engine (FFmpeg): ${detail}`);
     }
-
-    loading = null;
-    const detail = lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(`Could not load the video engine (FFmpeg): ${detail}`);
   })();
 
   return loading;
