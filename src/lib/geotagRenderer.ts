@@ -6,8 +6,11 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 
 export function formatDateLine(data: GeotagData, opts: GeotagOptions): string {
   if (!data.date) return "";
-  const [y, m, d] = data.date.split("-").map(Number);
-  const dt = new Date(y, (m || 1) - 1, d || 1);
+  const parts = data.date.split("-");
+  const y = Number(parts[0] ?? 0);
+  const m = Number(parts[1] ?? 1);
+  const d = Number(parts[2] ?? 1);
+  const dt = new Date(y, m - 1, d);
   const day = DAYS[dt.getDay()] ?? "";
   const ddmmyyyy = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
   let line = `${day}, ${ddmmyyyy}`;

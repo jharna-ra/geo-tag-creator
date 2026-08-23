@@ -37,6 +37,7 @@ export async function geocodeAddress(query: string): Promise<GeocodeResult> {
   const json = (await res.json()) as NominatimItem[];
   if (!json.length) throw new Error("Address not found. Try a simpler address or enter coordinates manually.");
   const item = json[0];
+  if (!item) throw new Error("Address not found. Try a simpler address or enter coordinates manually.");
   const a = item.address ?? {};
   return {
     latitude: parseFloat(item.lat),

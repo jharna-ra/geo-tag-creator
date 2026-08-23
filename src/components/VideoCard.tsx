@@ -158,7 +158,9 @@ export function VideoCard({ item, overlayUrl, index, onUpdate, onRemove, onApply
                 min={5}
                 max={100}
                 step={1}
-                onValueChange={([v]) => onUpdate(item.id, { percent: v })}
+                onValueChange={([v]) =>
+                  onUpdate(item.id, { percent: v ?? item.settings.percent })
+                }
               />
               <p className="text-sm">
                 Geotag will appear for <strong>{t.geotagDuration.toFixed(1)} seconds</strong> of this video (
@@ -206,7 +208,9 @@ export function VideoCard({ item, overlayUrl, index, onUpdate, onRemove, onApply
                   min={30}
                   max={100}
                   step={1}
-                  onValueChange={([v]) => onUpdate(item.id, { scale: v / 100 })}
+                  onValueChange={([v]) =>
+                    onUpdate(item.id, { scale: (v ?? item.settings.scale * 100) / 100 })
+                  }
                 />
               </div>
               <div className="space-y-2">
@@ -216,7 +220,9 @@ export function VideoCard({ item, overlayUrl, index, onUpdate, onRemove, onApply
                   min={20}
                   max={100}
                   step={1}
-                  onValueChange={([v]) => onUpdate(item.id, { opacity: v / 100 })}
+                  onValueChange={([v]) =>
+                    onUpdate(item.id, { opacity: (v ?? item.settings.opacity * 100) / 100 })
+                  }
                 />
               </div>
             </div>
