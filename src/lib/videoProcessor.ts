@@ -55,7 +55,7 @@ export async function processVideo({ item, overlayPng, onProgress }: ProcessArgs
     await ffmpeg.writeFile(pngName, await fetchFile(overlayPng));
 
     const overlayW = Math.round((item.width || 1280) * item.settings.scale);
-    const { x, y } = overlayXY(item.settings.position, Math.round((item.height || 720) * 0.035));
+    const { x, y } = overlayXY(item.settings.position, 0);
     const alpha = item.settings.opacity;
 
     const filter =
