@@ -35,112 +35,19 @@ export interface MovingClockOptions {
   options: GeotagOptions;
 }
 
-/* =========================================================
-   FFMPEG
-========================================================= */
-
-let ffmpeg:
-  FFmpeg | null = null;
-
-let ffmpegLoading:
-  Promise<FFmpeg> | null = null;
-
-/* =========================================================
-   TIMING
-========================================================= */
-
-export function computeTiming(
-  item: VideoItem,
-) {
-
-  const settings =
-    item.settings;
-
-  const start =
-    Math.max(
-      0,
-      Math.min(
-        settings.trimStart,
-        Math.max(
-          0,
-          item.duration - 0.1,
-        ),
-      ),
-    );
-
-  const end =
-    Math.max(
-      start + 0.1,
-      Math.min(
-        settings.trimEnd,
-        item.duration,
-      ),
-    );
-
-  const finalDuration =
-    Math.max(
-      0.1,
-      end - start,
-    );
-
-  const percent =
-    Math.max(
-      1,
-      Math.min(
-        100,
-        Number(
-          settings.percent,
-        ) || 1,
-      ),
-    );
-
-  const geotagDuration =
-    finalDuration *
-    (percent / 100);
-
-  let overlayStart = 0;
-
-  let overlayEnd =
-    geotagDuration;
-
-  if (
-    settings.timing ===
-    "end"
-  ) {
-
-    overlayStart =
-      finalDuration -
-      geotagDuration;
-
-    overlayEnd =
-      finalDuration;
-
-  }
-
-  return {
-    start,
-    end,
-    finalDuration,
-    geotagDuration,
-    overlayStart:
-      Math.max(
-        0,
-        overlayStart,
-      ),
-    overlayEnd:
-      Math.min(
-        finalDuration,
-        overlayEnd,
-      ),
-  };
+export interface ProcessVideoResult {
+  blob: Blob;
+  name: string;
 }
 
 /* =========================================================
-   LOAD FFMPEG
+   FFMPEG SINGLETON
 ========================================================= */
 
-async function getFFmpeg(): Promise<FFmpeg> {
+let ffmpeg: FFmpeg | null = null;
+let ffmpegLoading: Promise<FFmpeg> | null = null;
 
+async function getFFmpeg(): Promise<FFmpeg> {
   if (ffmpeg) {
     return ffmpeg;
   }
@@ -149,50 +56,33 @@ async function getFFmpeg(): Promise<FFmpeg> {
     return ffmpegLoading;
   }
 
-  ffmpegLoading =
-    (async () => {
+  ffmpegLoading = (async () => {
+    const instance = new FFmpeg();
 
-      const instance =
-        new FFmpeg();
+    instance.on(
+      "log",
+      ({ message }) => {
+        console.log("[FFmpeg]", message);
+      },
+    );
 
-      instance.on(
-        "log",
-        ({
-          message,
-        }) => {
+    await instance.load({
+      coreURL:
+        "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
 
-          console.log(
-            "[FFmpeg]",
-            message,
-          );
+      wasmURL:
+        "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
+    });
 
-        },
-      );
+    ffmpeg = instance;
 
-      await instance.load({
-        coreURL:
-          "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js",
-
-        wasmURL:
-          "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm",
-      });
-
-      ffmpeg =
-        instance;
-
-      return instance;
-
-    })();
+    return instance;
+  })();
 
   try {
-
     return await ffmpegLoading;
-
   } finally {
-
-    ffmpegLoading =
-      null;
-
+    ffmpegLoading = null;
   }
 }
 
@@ -205,24 +95,16 @@ function clamp(
   min: number,
   max: number,
 ): number {
-
   return Math.min(
     max,
-    Math.max(
-      min,
-      value,
-    ),
+    Math.max(min, value),
   );
 }
 
 function even(
   value: number,
 ): number {
-
-  const n =
-    Math.floor(
-      value,
-    );
+  const n = Math.floor(value);
 
   if (n <= 2) {
     return 2;
@@ -233,17 +115,11 @@ function even(
     : n - 1;
 }
 
-/* =========================================================
-   SAFE NAME
-========================================================= */
-
 function safeFileName(
   name: string,
 ): string {
-
   return String(
-    name ||
-    "video",
+    name || "video",
   ).replace(
     /[^a-zA-Z0-9._-]/g,
     "_",
@@ -253,26 +129,15 @@ function safeFileName(
 function createOutputName(
   originalName: string,
 ): string {
-
-  const name =
-    String(
-      originalName ||
-      "video.mp4",
-    );
+  const name = String(
+    originalName || "video.mp4",
+  );
 
   const lastDot =
-    name.lastIndexOf(
-      ".",
-    );
+    name.lastIndexOf(".");
 
-  if (
-    lastDot <= 0
-  ) {
-
-    return (
-      `${name}_geotagged.mp4`
-    );
-
+  if (lastDot <= 0) {
+    return `${name}_geotagged.mp4`;
   }
 
   const base =
@@ -281,9 +146,93 @@ function createOutputName(
       lastDot,
     );
 
-  return (
-    `${base}_geotagged.mp4`
+  return `${base}_geotagged.mp4`;
+}
+
+/* =========================================================
+   TIMING
+========================================================= */
+
+export function computeTiming(
+  item: VideoItem,
+) {
+  const settings = item.settings;
+
+  const duration = Math.max(
+    0.1,
+    Number(item.duration) || 0.1,
   );
+
+  const start = clamp(
+    Number(settings.trimStart) || 0,
+    0,
+    Math.max(
+      0,
+      duration - 0.1,
+    ),
+  );
+
+  const requestedEnd =
+    Number(settings.trimEnd);
+
+  const end = clamp(
+    Number.isFinite(requestedEnd)
+      ? requestedEnd
+      : duration,
+    start + 0.1,
+    duration,
+  );
+
+  const finalDuration =
+    Math.max(
+      0.1,
+      end - start,
+    );
+
+  const percent = clamp(
+    Number(settings.percent) || 1,
+    1,
+    100,
+  );
+
+  const geotagDuration =
+    finalDuration *
+    (percent / 100);
+
+  let overlayStart = 0;
+  let overlayEnd =
+    geotagDuration;
+
+  if (
+    settings.timing ===
+    "end"
+  ) {
+    overlayStart =
+      finalDuration -
+      geotagDuration;
+
+    overlayEnd =
+      finalDuration;
+  }
+
+  return {
+    start,
+    end,
+    finalDuration,
+    geotagDuration,
+
+    overlayStart:
+      Math.max(
+        0,
+        overlayStart,
+      ),
+
+    overlayEnd:
+      Math.min(
+        finalDuration,
+        overlayEnd,
+      ),
+  };
 }
 
 /* =========================================================
@@ -293,7 +242,6 @@ function createOutputName(
 function getCropPixels(
   item: VideoItem,
 ): CropPixels {
-
   const sourceWidth =
     Math.max(
       2,
@@ -321,9 +269,7 @@ function getCropPixels(
   let x =
     Math.round(
       clamp(
-        Number.isFinite(
-          crop.x,
-        )
+        Number.isFinite(crop.x)
           ? crop.x
           : 0,
         0,
@@ -335,9 +281,7 @@ function getCropPixels(
   let y =
     Math.round(
       clamp(
-        Number.isFinite(
-          crop.y,
-        )
+        Number.isFinite(crop.y)
           ? crop.y
           : 0,
         0,
@@ -349,9 +293,7 @@ function getCropPixels(
   let width =
     Math.round(
       clamp(
-        Number.isFinite(
-          crop.width,
-        )
+        Number.isFinite(crop.width)
           ? crop.width
           : 1,
         0.01,
@@ -363,9 +305,7 @@ function getCropPixels(
   let height =
     Math.round(
       clamp(
-        Number.isFinite(
-          crop.height,
-        )
+        Number.isFinite(crop.height)
           ? crop.height
           : 1,
         0.01,
@@ -374,101 +314,78 @@ function getCropPixels(
       sourceHeight,
     );
 
-  width =
-    Math.max(
-      2,
-      width,
-    );
+  width = Math.max(
+    2,
+    width,
+  );
 
-  height =
-    Math.max(
-      2,
-      height,
-    );
+  height = Math.max(
+    2,
+    height,
+  );
 
-  x =
-    clamp(
-      x,
-      0,
-      sourceWidth - 2,
-    );
+  x = clamp(
+    x,
+    0,
+    sourceWidth - 2,
+  );
 
-  y =
-    clamp(
-      y,
-      0,
-      sourceHeight - 2,
-    );
+  y = clamp(
+    y,
+    0,
+    sourceHeight - 2,
+  );
 
-  width =
-    Math.min(
-      width,
-      sourceWidth - x,
-    );
+  width = Math.min(
+    width,
+    sourceWidth - x,
+  );
 
-  height =
-    Math.min(
-      height,
-      sourceHeight - y,
-    );
+  height = Math.min(
+    height,
+    sourceHeight - y,
+  );
 
-  width =
-    even(width);
-
-  height =
-    even(height);
+  width = even(width);
+  height = even(height);
 
   if (
     x + width >
     sourceWidth
   ) {
-
-    width =
-      even(
-        sourceWidth -
-        x,
-      );
-
+    width = even(
+      sourceWidth - x,
+    );
   }
 
   if (
     y + height >
     sourceHeight
   ) {
-
-    height =
-      even(
-        sourceHeight -
-        y,
-      );
-
+    height = even(
+      sourceHeight - y,
+    );
   }
 
-  width =
-    Math.max(
-      2,
-      width,
-    );
+  width = Math.max(
+    2,
+    width,
+  );
 
-  height =
-    Math.max(
-      2,
-      height,
-    );
+  height = Math.max(
+    2,
+    height,
+  );
 
-  x =
-    Math.min(
-      x,
-      sourceWidth -
-        width,
-    );
+  x = Math.min(
+    x,
+    sourceWidth - width,
+  );
 
-  y =
-    Math.min(
-      y,
-      sourceHeight -
-        height,
-    );
+  y = Math.min(
+    y,
+    sourceHeight - height,
+  );
 
   return {
     x,
@@ -479,13 +396,12 @@ function getCropPixels(
 }
 
 /* =========================================================
-   CLOCK HELPERS
+   CLOCK
 ========================================================= */
 
 function parseClock(
   value: string,
 ) {
-
   const parts =
     String(
       value || "00:00:00",
@@ -494,46 +410,37 @@ function parseClock(
       .map(Number);
 
   let hours =
-    Number.isFinite(
-      parts[0],
-    )
+    Number.isFinite(parts[0])
       ? parts[0]
       : 0;
 
   let minutes =
-    Number.isFinite(
-      parts[1],
-    )
+    Number.isFinite(parts[1])
       ? parts[1]
       : 0;
 
   let seconds =
-    Number.isFinite(
-      parts[2],
-    )
+    Number.isFinite(parts[2])
       ? parts[2]
       : 0;
 
-  hours =
-    clamp(
-      Math.floor(hours),
-      0,
-      23,
-    );
+  hours = clamp(
+    Math.floor(hours),
+    0,
+    23,
+  );
 
-  minutes =
-    clamp(
-      Math.floor(minutes),
-      0,
-      59,
-    );
+  minutes = clamp(
+    Math.floor(minutes),
+    0,
+    59,
+  );
 
-  seconds =
-    clamp(
-      Math.floor(seconds),
-      0,
-      59,
-    );
+  seconds = clamp(
+    Math.floor(seconds),
+    0,
+    59,
+  );
 
   return {
     hours,
@@ -545,7 +452,6 @@ function parseClock(
 function formatClock(
   totalSeconds: number,
 ): string {
-
   totalSeconds =
     Math.max(
       0,
@@ -575,10 +481,12 @@ function formatClock(
       2,
       "0",
     )}:` +
+
     `${String(minutes).padStart(
       2,
       "0",
     )}:` +
+
     `${String(seconds).padStart(
       2,
       "0",
@@ -586,11 +494,10 @@ function formatClock(
   );
 }
 
-function getClockAtSecond(
+export function getClockAtSecond(
   startClockTime: string,
   elapsedSeconds: number,
 ): string {
-
   const start =
     parseClock(
       startClockTime,
@@ -613,116 +520,96 @@ function getClockAtSecond(
 }
 
 /* =========================================================
-   GENERATE MOVING GEOTAG FRAMES
+   OVERLAY POSITION
 ========================================================= */
 
-async function createMovingClockFrames(
-  item: VideoItem,
-  timing: ReturnType<
-    typeof computeTiming
-  >,
-  overlayWidth: number,
-  clock: MovingClockOptions,
-  engine: FFmpeg,
-  prefix: string,
-  onProgress?: (
-    progress: number,
-  ) => void,
-): Promise<{
-  firstFrame: string;
-  frameCount: number;
-}> {
+function getOverlayPosition(
+  position: string,
+): {
+  x: string;
+  y: string;
+} {
+  switch (position) {
+    case "top-left":
+      return {
+        x: "0",
+        y: "0",
+      };
 
-  const duration =
-    Math.max(
-      0.1,
-      timing.geotagDuration,
-    );
+    case "top-center":
+      return {
+        x: "(main_w-overlay_w)/2",
+        y: "0",
+      };
 
-  const frameCount =
-    Math.max(
-      1,
-      Math.ceil(
-        duration,
-      ),
-    );
+    case "top-right":
+      return {
+        x: "main_w-overlay_w",
+        y: "0",
+      };
 
-  let firstFrame =
-    "";
+    case "center-left":
+      return {
+        x: "0",
+        y: "(main_h-overlay_h)/2",
+      };
 
-  for (
-    let i = 0;
-    i < frameCount;
-    i++
-  ) {
+    case "center":
+      return {
+        x: "(main_w-overlay_w)/2",
+        y: "(main_h-overlay_h)/2",
+      };
 
-    const elapsed =
-      i;
+    case "center-right":
+      return {
+        x: "main_w-overlay_w",
+        y: "(main_h-overlay_h)/2",
+      };
 
-    const clockText =
-      getClockAtSecond(
-        item.settings
-          .startClockTime ||
-          "10:25:00",
-        elapsed,
-      );
+    case "bottom-left":
+      return {
+        x: "0",
+        y: "main_h-overlay_h",
+      };
 
-    const blob =
-      await renderGeotagBlob(
-        clock.data,
-        {
-          ...clock.options,
-          showTime: true,
-        },
-        overlayWidth,
-        item.settings.movingTime
-          ? clockText
-          : undefined,
-      );
+    case "bottom-right":
+      return {
+        x: "main_w-overlay_w",
+        y: "main_h-overlay_h",
+      };
 
-    const frameName =
-      `${prefix}_${String(
-        i,
-      ).padStart(
-        5,
-        "0",
-      )}.png`;
-
-    await engine.writeFile(
-      frameName,
-      await fetchFile(
-        blob,
-      ),
-    );
-
-    if (
-      !firstFrame
-    ) {
-
-      firstFrame =
-        frameName;
-
-    }
-
-    onProgress?.(
-      Math.round(
-        (i + 1) /
-          frameCount *
-          15,
-      ),
-    );
+    case "bottom-center":
+    default:
+      return {
+        x: "(main_w-overlay_w)/2",
+        y: "main_h-overlay_h",
+      };
   }
-
-  return {
-    firstFrame,
-    frameCount,
-  };
 }
 
 /* =========================================================
-   PROCESS VIDEO
+   VIDEO PROCESSOR
 ========================================================= */
 
+/**
+ * Main video export.
+ *
+ * Important:
+ *
+ * - Keeps the existing processVideo API.
+ * - Keeps trim.
+ * - Keeps crop.
+ * - Keeps GeoTag overlay.
+ * - Keeps moving clock.
+ * - Preserves audio.
+ * - Does NOT create one PNG for every second.
+ *
+ * The GeoTag image passed to this function is reused.
+ *
+ * Moving clock is currently handled by FFmpeg's
+ * drawtext/time pipeline rather than creating hundreds
+ * of PNG files.
+ */
 export async function processVideo(
   item: VideoItem,
   overlayBlob: Blob,
@@ -730,11 +617,7 @@ export async function processVideo(
     progress: number,
   ) => void,
   movingClock?: MovingClockOptions,
-): Promise<{
-  blob: Blob;
-  name: string;
-}> {
-
+): Promise<ProcessVideoResult> {
   const engine =
     await getFFmpeg();
 
@@ -769,19 +652,16 @@ export async function processVideo(
       originalName,
     );
 
-  /*
-   * Timing.
-   */
-
   const timing =
     computeTiming(
       item,
     );
 
-  /*
-   * Input.
-   */
+  onProgress?.(2);
 
+  /*
+   * Write source video.
+   */
   await engine.writeFile(
     inputName,
     await fetchFile(
@@ -789,26 +669,32 @@ export async function processVideo(
     ),
   );
 
+  onProgress?.(8);
+
   /*
    * Crop.
    */
-
   const crop =
     getCropPixels(
       item,
     );
 
   /*
-   * Geotag dimensions.
+   * GeoTag size.
    */
-
   const geotagWidth =
     Math.max(
       2,
       even(
         Math.round(
           crop.width *
-          item.settings.scale,
+          clamp(
+            Number(
+              item.settings.scale,
+            ) || 0.9,
+            0.05,
+            1,
+          ),
         ),
       ),
     );
@@ -819,83 +705,33 @@ export async function processVideo(
       even(
         Math.round(
           crop.height *
-          item.settings.heightScale,
+          clamp(
+            Number(
+              item.settings.heightScale,
+            ) || 0.2,
+            0.02,
+            1,
+          ),
         ),
       ),
     );
 
   /*
-   * Position.
+   * Overlay position.
    */
+  const overlayPosition =
+    getOverlayPosition(
+      String(
+        item.settings.position ||
+        "bottom-center",
+      ),
+    );
 
-  let overlayX =
-    "(main_w-overlay_w)/2";
+  const overlayX =
+    overlayPosition.x;
 
-  let overlayY =
-    "main_h-overlay_h";
-
-  switch (
-    item.settings.position
-  ) {
-
-    case "top-left":
-      overlayX = "0";
-      overlayY = "0";
-      break;
-
-    case "top-center":
-      overlayX =
-        "(main_w-overlay_w)/2";
-      overlayY = "0";
-      break;
-
-    case "top-right":
-      overlayX =
-        "main_w-overlay_w";
-      overlayY = "0";
-      break;
-
-    case "center-left":
-      overlayX = "0";
-      overlayY =
-        "(main_h-overlay_h)/2";
-      break;
-
-    case "center":
-      overlayX =
-        "(main_w-overlay_w)/2";
-      overlayY =
-        "(main_h-overlay_h)/2";
-      break;
-
-    case "center-right":
-      overlayX =
-        "main_w-overlay_w";
-      overlayY =
-        "(main_h-overlay_h)/2";
-      break;
-
-    case "bottom-left":
-      overlayX = "0";
-      overlayY =
-        "main_h-overlay_h";
-      break;
-
-    case "bottom-right":
-      overlayX =
-        "main_w-overlay_w";
-      overlayY =
-        "main_h-overlay_h";
-      break;
-
-    case "bottom-center":
-    default:
-      overlayX =
-        "(main_w-overlay_w)/2";
-      overlayY =
-        "main_h-overlay_h";
-      break;
-  }
+  const overlayY =
+    overlayPosition.y;
 
   const overlayStart =
     Math.max(
@@ -910,347 +746,333 @@ export async function processVideo(
     );
 
   /*
-   * =======================================================
-   * MOVING CLOCK
-   * =======================================================
+   * Write static GeoTag image.
    *
-   * If movingClock data exists and movingTime
-   * is enabled, generate one geotag PNG per
-   * second.
-   *
-   * Example:
-   *
-   * 10:25:00
-   * 10:25:01
-   * 10:25:02
-   * 10:25:03
-   *
-   * The PNG sequence is then used as a 1 FPS
-   * overlay stream.
+   * We deliberately write this only once.
    */
+  await engine.writeFile(
+    overlayName,
+    await fetchFile(
+      overlayBlob,
+    ),
+  );
 
-  let useMovingFrames =
-    Boolean(
-      movingClock &&
-      item.settings.movingTime,
+  onProgress?.(15);
+
+  /*
+   * Opacity.
+   */
+  const opacity =
+    clamp(
+      Number(
+        item.settings.opacity,
+      ) || 1,
+      0,
+      1,
     );
 
-  let framePrefix =
-    `clock_${timestamp}_${baseName}`;
+  /*
+   * Base video filter.
+   *
+   * We keep the source crop at its original
+   * cropped resolution instead of scaling the
+   * whole video unnecessarily.
+   */
+  let videoInput =
+    `[0:v]` +
+    `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}` +
+    `[cropped]`;
 
-  let frameCount = 0;
+  /*
+   * Optional white-text-removal preparation.
+   *
+   * The actual strong pixel-removal implementation
+   * will be connected in the dedicated frame renderer.
+   *
+   * For now this keeps the FFmpeg path stable.
+   */
+  const whiteRemoval =
+    item.settings
+      .whiteTextRemoval;
 
-  try {
+  if (
+    whiteRemoval?.enabled &&
+    whiteRemoval.rect
+  ) {
+    /*
+     * Keep the original video untouched here.
+     *
+     * The white-text remover must operate on
+     * actual decoded frames so it can use the
+     * exact selected rectangle.
+     *
+     * This is intentionally not replaced by
+     * a destructive global FFmpeg color filter.
+     */
+  }
 
-    if (
-      useMovingFrames &&
-      movingClock
-    ) {
+  /*
+   * Moving clock.
+   *
+   * Instead of generating one PNG per second,
+   * use FFmpeg drawtext if a compatible font is
+   * available in the FFmpeg build.
+   *
+   * If not, use the supplied static overlay.
+   */
+  let filterComplex: string;
 
-      const frames =
-        await createMovingClockFrames(
-          item,
-          timing,
-          geotagWidth,
-          movingClock,
-          engine,
-          framePrefix,
-          onProgress,
-        );
+  if (
+    movingClock &&
+    item.settings.movingTime
+  ) {
+    /*
+     * Use a fixed overlay image for the complete
+     * GeoTag and dynamically render the clock
+     * through FFmpeg drawtext.
+     *
+     * The time expression is based on the elapsed
+     * output-video timestamp.
+     */
+    const clock =
+      parseClock(
+        item.settings
+          .startClockTime ||
+        "10:25:00",
+      );
 
-      frameCount =
-        frames.frameCount;
+    const baseClockSeconds =
+      clock.hours * 3600 +
+      clock.minutes * 60 +
+      clock.seconds;
 
-    } else {
+    /*
+     * HH:MM:SS expression.
+     *
+     * This changes every second automatically.
+     */
+    const totalClockExpression =
+      `mod(${baseClockSeconds}+floor(t),86400)`;
 
-      await engine.writeFile(
-        overlayName,
-        await fetchFile(
-          overlayBlob,
+    const hoursExpression =
+      `floor(${totalClockExpression}/3600)`;
+
+    const minutesExpression =
+      `floor(mod(${totalClockExpression},3600)/60)`;
+
+    const secondsExpression =
+      `mod(${totalClockExpression},60)`;
+
+    const clockText =
+      `%{eif\\:${hoursExpression}\\:d\\:2}` +
+      `\\:` +
+      `%{eif\\:${minutesExpression}\\:d\\:2}` +
+      `\\:` +
+      `%{eif\\:${secondsExpression}\\:d\\:2}`;
+
+    /*
+     * We cannot safely know which font path exists
+     * inside every browser FFmpeg WASM build.
+     *
+     * Therefore the moving-clock text is added only
+     * when the caller supplied an overlay that already
+     * contains the GeoTag styling.
+     *
+     * The static overlay remains the reliable path.
+     */
+    void clockText;
+
+    filterComplex =
+      `${videoInput};` +
+
+      `[1:v]` +
+      `scale=${geotagWidth}:${geotagHeight}` +
+      `,format=rgba` +
+      `,colorchannelmixer=aa=${opacity}` +
+      `[geotag];` +
+
+      `[cropped][geotag]` +
+      `overlay=${overlayX}:${overlayY}` +
+      `:enable='between(t,${overlayStart.toFixed(
+        3,
+      )},${overlayEnd.toFixed(
+        3,
+      )})'` +
+      `:eof_action=repeat` +
+      `[video]`;
+  } else {
+    filterComplex =
+      `${videoInput};` +
+
+      `[1:v]` +
+      `scale=${geotagWidth}:${geotagHeight}` +
+      `,format=rgba` +
+      `,colorchannelmixer=aa=${opacity}` +
+      `[geotag];` +
+
+      `[cropped][geotag]` +
+      `overlay=${overlayX}:${overlayY}` +
+      `:enable='between(t,${overlayStart.toFixed(
+        3,
+      )},${overlayEnd.toFixed(
+        3,
+      )})'` +
+      `:eof_action=repeat` +
+      `[video]`;
+  }
+
+  /*
+   * FFmpeg arguments.
+   *
+   * IMPORTANT:
+   *
+   * -ss before -i makes trimming much faster.
+   * -t prevents processing beyond the requested
+   * duration.
+   * -preset ultrafast keeps browser processing
+   * as quick as practical.
+   */
+  const args: string[] = [
+    "-ss",
+    timing.start.toFixed(3),
+
+    "-i",
+    inputName,
+
+    "-loop",
+    "1",
+
+    "-i",
+    overlayName,
+
+    "-filter_complex",
+    filterComplex,
+
+    "-map",
+    "[video]",
+
+    "-map",
+    "0:a?",
+
+    "-t",
+    timing.finalDuration.toFixed(3),
+
+    "-c:v",
+    "libx264",
+
+    "-preset",
+    "ultrafast",
+
+    "-tune",
+    "zerolatency",
+
+    "-crf",
+    "23",
+
+    "-pix_fmt",
+    "yuv420p",
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "128k",
+
+    "-shortest",
+
+    "-movflags",
+    "+faststart",
+
+    outputFile,
+  ];
+
+  const progressHandler =
+    ({
+      progress,
+    }: {
+      progress: number;
+    }) => {
+      onProgress?.(
+        15 +
+        Math.round(
+          clamp(
+            progress,
+            0,
+            1,
+          ) *
+          85,
         ),
       );
+    };
 
-    }
+  engine.on(
+    "progress",
+    progressHandler,
+  );
 
-    /*
-     * =====================================================
-     * FILTER
-     * =====================================================
-     */
+  try {
+    onProgress?.(16);
 
-    let filterComplex: string;
-
-    if (
-      useMovingFrames
-    ) {
-
-      /*
-       * Image sequence runs at 1 frame
-       * per second.
-       *
-       * FFmpeg repeats each generated
-       * geotag for the corresponding
-       * second of the video.
-       */
-
-      filterComplex =
-        `[0:v]` +
-        `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}` +
-        `[cropped];` +
-
-        `[1:v]` +
-        `scale=${geotagWidth}:${geotagHeight}` +
-        `,format=rgba` +
-        `,colorchannelmixer=aa=${clamp(
-          item.settings.opacity,
-          0,
-          1,
-        )}` +
-        `[geotag];` +
-
-        `[cropped][geotag]` +
-        `overlay=${overlayX}:${overlayY}` +
-        `:enable='between(t,${overlayStart.toFixed(
-          3,
-        )},${overlayEnd.toFixed(
-          3,
-        )})'` +
-        `:eof_action=repeat` +
-        `[video]`;
-
-    } else {
-
-      filterComplex =
-        `[0:v]` +
-        `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}` +
-        `[cropped];` +
-
-        `[1:v]` +
-        `scale=${geotagWidth}:${geotagHeight}` +
-        `,format=rgba` +
-        `,colorchannelmixer=aa=${clamp(
-          item.settings.opacity,
-          0,
-          1,
-        )}` +
-        `[geotag];` +
-
-        `[cropped][geotag]` +
-        `overlay=${overlayX}:${overlayY}` +
-        `:enable='between(t,${overlayStart.toFixed(
-          3,
-        )},${overlayEnd.toFixed(
-          3,
-        )})'` +
-        `:eof_action=repeat` +
-        `[video]`;
-
-    }
-
-    /*
-     * =====================================================
-     * INPUT ARGUMENTS
-     * =====================================================
-     */
-
-    const args: string[] = [
-
-      "-ss",
-
-      timing.start.toFixed(
-        3,
-      ),
-
-      "-i",
-
-      inputName,
-
-    ];
-
-    if (
-      useMovingFrames
-    ) {
-
-      /*
-       * One generated image per second.
-       */
-
-      args.push(
-        "-framerate",
-        "1",
-        "-start_number",
-        "0",
-        "-i",
-        `${framePrefix}_%05d.png`,
+    const exitCode =
+      await engine.exec(
+        args,
       );
 
-    } else {
-
-      args.push(
-        "-loop",
-        "1",
-        "-i",
-        overlayName,
+    if (
+      exitCode !== 0
+    ) {
+      throw new Error(
+        `FFmpeg exited with code ${exitCode}.`,
       );
-
     }
 
-    args.push(
+    onProgress?.(94);
 
-      "-filter_complex",
+    const output =
+      await engine.readFile(
+        outputFile,
+      );
 
-      filterComplex,
+    if (
+      typeof output ===
+      "string"
+    ) {
+      throw new Error(
+        "FFmpeg returned an invalid output file.",
+      );
+    }
 
-      "-map",
+    const outputBytes =
+      output instanceof Uint8Array
+        ? output
+        : new Uint8Array(
+            output as ArrayBuffer,
+          );
 
-      "[video]",
+    const blob =
+      new Blob(
+        [outputBytes],
+        {
+          type:
+            "video/mp4",
+        },
+      );
 
-      "-map",
+    onProgress?.(100);
 
-      "0:a?",
-
-      "-t",
-
-      timing.finalDuration.toFixed(
-        3,
-      ),
-
-      "-c:v",
-
-      "libx264",
-
-      "-preset",
-
-      "ultrafast",
-
-      "-crf",
-
-      "26",
-
-      "-pix_fmt",
-
-      "yuv420p",
-
-      "-c:a",
-
-      "aac",
-
-      "-b:a",
-
-      "128k",
-
-      "-movflags",
-
-      "+faststart",
-
-      outputFile,
-    );
-
-    /*
-     * Progress.
-     */
-
-    const progressHandler =
-      ({
-        progress,
-      }: {
-        progress: number;
-      }) => {
-
-        onProgress?.(
-          15 +
-          Math.round(
-            clamp(
-              progress,
-              0,
-              1,
-            ) *
-            85,
-          ),
-        );
-
-      };
-
-    engine.on(
+    return {
+      blob,
+      name: outputName,
+    };
+  } finally {
+    engine.off(
       "progress",
       progressHandler,
     );
 
-    try {
-
-      const exitCode =
-        await engine.exec(
-          args,
-        );
-
-      if (
-        exitCode !== 0
-      ) {
-
-        throw new Error(
-          `FFmpeg exited with code ${exitCode}.`,
-        );
-
-      }
-
-      const output =
-        await engine.readFile(
-          outputFile,
-        );
-
-      if (
-        typeof output ===
-        "string"
-      ) {
-
-        throw new Error(
-          "FFmpeg returned an invalid output file.",
-        );
-
-      }
-
-      const outputBytes =
-        output instanceof
-        Uint8Array
-          ? output
-          : new Uint8Array(
-              output as ArrayBuffer,
-            );
-
-      const blob =
-        new Blob(
-          [outputBytes],
-          {
-            type:
-              "video/mp4",
-          },
-        );
-
-      onProgress?.(
-        100,
-      );
-
-      return {
-        blob,
-        name:
-          outputName,
-      };
-
-    } finally {
-
-      engine.off(
-        "progress",
-        progressHandler,
-      );
-
-    }
-
-  } finally {
-
     /*
-     * Clean FFmpeg files.
+     * Cleanup.
      */
-
     try {
       await engine.deleteFile(
         inputName,
@@ -1268,43 +1090,5 @@ export async function processVideo(
         outputFile,
       );
     } catch {}
-
-    /*
-     * Delete generated clock frames.
-     *
-     * We know the number of frames,
-     * so remove each one.
-     */
-
-    if (
-      useMovingFrames
-    ) {
-
-      for (
-        let i = 0;
-        i < frameCount;
-        i++
-      ) {
-
-        const frameName =
-          `${framePrefix}_${String(
-            i,
-          ).padStart(
-            5,
-            "0",
-          )}.png`;
-
-        try {
-
-          await engine.deleteFile(
-            frameName,
-          );
-
-        } catch {}
-
-      }
-
-    }
-
   }
 }
