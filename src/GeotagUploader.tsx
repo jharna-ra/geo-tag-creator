@@ -1,252 +1,236 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 interface GeotagUploaderProps {
-  onImageSelected: (file: File | null) => void;
+  onImageSelected: (
+    file: File | null,
+  ) => void;
 
-  /*
-   * Optional multi-file callback.
-   * Existing code using only onImageSelected will continue to work.
-   */
-  onImagesSelected?: (files: File[]) => void;
+  onImagesSelected?: (
+    files: File[],
+  ) => void;
 }
 
 export default function GeotagUploader({
   onImageSelected,
   onImagesSelected,
 }: GeotagUploaderProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
+  const inputRef =
+    useRef<HTMLInputElement>(null);
 
-  const [files, setFiles] = useState<File[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const folderInputRef =
+    useRef<HTMLInputElement>(null);
 
-  const currentFile = files[currentIndex] ?? null;
+  const [files, setFiles] =
+    useState<File[]>([]);
 
-  /*
-   * Create preview URLs for all selected images.
-   */
+  const [currentIndex, setCurrentIndex] =
+    useState(0);
+
+  const [previews, setPreviews] =
+    useState<string[]>([]);
+
+  const currentFile =
+    files[currentIndex] ?? null;
+
   useEffect(() => {
-    const urls = files.map((file) => URL.createObjectURL(file));
+    const urls = files.map(
+      (file) =>
+        URL.createObjectURL(file),
+    );
 
     setPreviews(urls);
 
     return () => {
-      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
     };
   }, [files]);
 
-  /*
-   * Notify parent whenever the current image changes.
-   */
   useEffect(() => {
-    onImageSelected(currentFile);
-  }, [currentFile, onImageSelected]);
-
-  /*
-   * Notify optional multi-file parent.
-   */
-  useEffect(() => {
-    if (onImagesSelected) {
-      onImagesSelected(files);
-    }
-  }, [files, onImagesSelected]);
-
-  /*
-   * Accept normal image files.
-   */
-  const filterImages = (selectedFiles: File[]) => {
-    return selectedFiles.filter((file) =>
-      file.type.startsWith("image/")
+    onImageSelected(
+      currentFile,
     );
-  };
+  }, [
+    currentFile,
+    onImageSelected,
+  ]);
 
-  /*
-   * Add files without destroying previously selected files.
-   */
-  const addFiles = (selectedFiles: File[]) => {
-    const images = filterImages(selectedFiles);
+  useEffect(() => {
+    onImagesSelected?.(files);
+  }, [
+    files,
+    onImagesSelected,
+  ]);
+
+  const addFiles = (
+    selected: File[],
+  ) => {
+    const images =
+      selected.filter(
+        (file) =>
+          file.type.startsWith(
+            "image/",
+          ),
+      );
 
     if (!images.length) {
-      alert("Please select PNG, JPG, JPEG or WebP images.");
+      alert(
+        "Please select image files.",
+      );
       return;
     }
 
     setFiles((previous) => {
-      const existingKeys = new Set(
-        previous.map(
+      const existing =
+        new Set(
+          previous.map(
+            (file) =>
+              `${file.name}-${file.size}-${file.lastModified}`,
+          ),
+        );
+
+      const newFiles =
+        images.filter(
           (file) =>
-            `${file.name}-${file.size}-${file.lastModified}`
-        )
-      );
+            !existing.has(
+              `${file.name}-${file.size}-${file.lastModified}`,
+            ),
+        );
 
-      const newFiles = images.filter(
-        (file) =>
-          !existingKeys.has(
-            `${file.name}-${file.size}-${file.lastModified}`
-          )
-      );
-
-      const combined = [...previous, ...newFiles];
-
-      return combined;
-    });
-
-    /*
-     * If this is the first upload, show the first image.
-     */
-    setCurrentIndex((previous) => {
-      if (files.length === 0) return 0;
-      return previous;
+      return [
+        ...previous,
+        ...newFiles,
+      ];
     });
   };
 
-  /*
-   * Normal file picker.
-   */
-  const handleChange = (
-    event: React.ChangeEvent<HTMLInputElement>
+  const handleFiles = (
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const selected = Array.from(event.target.files ?? []);
-
-    if (!selected.length) return;
-
-    addFiles(selected);
-
-    /*
-     * Allow selecting the same file again later.
-     */
-    event.target.value = "";
-  };
-
-  /*
-   * Folder picker.
-   *
-   * Chromium browsers support webkitdirectory.
-   */
-  const handleFolderChange = (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const selected = Array.from(event.target.files ?? []);
-
-    if (!selected.length) return;
-
-    addFiles(selected);
+    addFiles(
+      Array.from(
+        event.target.files ?? [],
+      ),
+    );
 
     event.target.value = "";
   };
 
-  /*
-   * Select a particular image.
-   */
-  const selectImage = (index: number) => {
-    if (index < 0 || index >= files.length) return;
+  const selectImage = (
+    index: number,
+  ) => {
+    if (
+      index < 0 ||
+      index >= files.length
+    ) {
+      return;
+    }
 
     setCurrentIndex(index);
   };
 
-  /*
-   * Previous image.
-   */
   const previousImage = () => {
-    setCurrentIndex((index) =>
-      index <= 0 ? files.length - 1 : index - 1
-    );
-  };
-
-  /*
-   * Next image.
-   */
-  const nextImage = () => {
-    setCurrentIndex((index) =>
-      index >= files.length - 1 ? 0 : index + 1
-    );
-  };
-
-  /*
-   * Remove current image.
-   */
-  const removeCurrent = () => {
     if (!files.length) return;
 
-    setFiles((previous) => {
-      const updated = previous.filter(
-        (_, index) => index !== currentIndex
-      );
-
-      return updated;
-    });
-
-    setCurrentIndex((index) => {
-      if (files.length <= 1) return 0;
-
-      if (index >= files.length - 1) {
-        return files.length - 2;
-      }
-
-      return index;
-    });
+    setCurrentIndex(
+      (index) =>
+        index <= 0
+          ? files.length - 1
+          : index - 1,
+    );
   };
 
-  /*
-   * Remove everything.
-   */
+  const nextImage = () => {
+    if (!files.length) return;
+
+    setCurrentIndex(
+      (index) =>
+        index >=
+        files.length - 1
+          ? 0
+          : index + 1,
+    );
+  };
+
+  const removeCurrent = () => {
+    setFiles((previous) => {
+      const next =
+        previous.filter(
+          (_, index) =>
+            index !==
+            currentIndex,
+        );
+
+      return next;
+    });
+
+    setCurrentIndex(
+      (index) =>
+        Math.max(
+          0,
+          Math.min(
+            index,
+            files.length - 2,
+          ),
+        ),
+    );
+  };
+
   const clearAll = () => {
     setFiles([]);
     setCurrentIndex(0);
     onImageSelected(null);
-
-    if (onImagesSelected) {
-      onImagesSelected([]);
-    }
   };
 
   const preview =
-    currentIndex >= 0 &&
-    currentIndex < previews.length
-      ? previews[currentIndex]
-      : null;
+    previews[currentIndex] ??
+    null;
 
   return (
-    <div className="space-y-4 rounded-xl border p-5">
+    <div className="space-y-5 rounded-2xl border p-5">
       <div>
         <h2 className="text-lg font-semibold">
           Upload Images
         </h2>
 
         <p className="text-sm text-muted-foreground">
-          Upload one image, multiple images, or an entire folder.
+          Choose one image, several images,
+          or an entire folder.
         </p>
       </div>
 
-      {/* Hidden normal file picker */}
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,image/jpg,image/webp"
+        accept="image/*"
         multiple
         className="hidden"
-        onChange={handleChange}
+        onChange={handleFiles}
       />
 
-      {/* Hidden folder picker */}
       <input
         ref={folderInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/jpg,image/webp"
+        accept="image/*"
         multiple
-        // @ts-expect-error - webkitdirectory is supported by Chromium
+        // @ts-expect-error Chromium directory support
         webkitdirectory=""
         directory=""
         className="hidden"
-        onChange={handleFolderChange}
+        onChange={handleFiles}
       />
 
-      {/* Upload buttons */}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={() =>
+            inputRef.current?.click()
+          }
           className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
         >
           Choose Images
@@ -254,109 +238,130 @@ export default function GeotagUploader({
 
         <button
           type="button"
-          onClick={() => folderInputRef.current?.click()}
+          onClick={() =>
+            folderInputRef.current?.click()
+          }
           className="rounded-lg border px-4 py-2 text-sm font-medium"
         >
           Choose Folder
         </button>
       </div>
 
-      {/* Empty state */}
       {!files.length && (
-        <div className="rounded-xl border-2 border-dashed p-8 text-center">
-          <div className="text-sm font-medium">
+        <div className="rounded-xl border-2 border-dashed p-10 text-center">
+          <p className="font-medium">
             No images selected
-          </div>
+          </p>
 
-          <div className="mt-2 text-xs text-muted-foreground">
-            Choose one or more images or select an entire folder.
-          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Upload images or choose a folder.
+          </p>
         </div>
       )}
 
-      {/* Current preview */}
       {files.length > 0 && (
-        <div className="space-y-4">
+        <>
           <div className="overflow-hidden rounded-xl border bg-black">
             {preview && (
               <img
                 src={preview}
-                alt={currentFile?.name ?? "Selected image"}
-                className="max-h-[500px] w-full object-contain"
+                alt={
+                  currentFile?.name ??
+                  "Selected image"
+                }
+                className="max-h-[600px] w-full object-contain"
               />
             )}
           </div>
 
-          {/* Current filename */}
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">
               Current image
             </div>
 
-            <div className="mt-1 truncate text-sm font-medium">
+            <div className="mt-1 truncate text-sm font-semibold">
               {currentFile?.name}
             </div>
 
             <div className="mt-1 text-xs text-muted-foreground">
-              Image {currentIndex + 1} of {files.length}
+              Image {currentIndex + 1} of{" "}
+              {files.length}
             </div>
           </div>
 
-          {/* Previous / Next */}
           {files.length > 1 && (
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={previousImage}
+                onClick={
+                  previousImage
+                }
                 className="rounded-lg border px-4 py-2 text-sm"
               >
                 ← Previous
               </button>
 
-              <span className="text-xs text-muted-foreground">
-                {currentIndex + 1} / {files.length}
+              <span className="text-xs">
+                {currentIndex + 1} /{" "}
+                {files.length}
               </span>
 
               <button
                 type="button"
-                onClick={nextImage}
-                className="rounded-lg border px-4 py-2 text-sm"
+                onClick={
+                  nextImage
+                }
+                className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground"
               >
-                Next →
+                Save & Next →
               </button>
             </div>
           )}
 
-          {/* Thumbnail strip */}
           {files.length > 1 && (
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-              {files.map((file, index) => (
-                <button
-                  key={`${file.name}-${file.size}-${file.lastModified}`}
-                  type="button"
-                  onClick={() => selectImage(index)}
-                  className={`overflow-hidden rounded-lg border-2 ${
-                    index === currentIndex
-                      ? "border-primary"
-                      : "border-transparent"
-                  }`}
-                  title={file.name}
-                >
-                  <img
-                    src={previews[index]}
-                    alt={file.name}
-                    className="aspect-square w-full object-cover"
-                  />
-                </button>
-              ))}
+              {files.map(
+                (
+                  file,
+                  index,
+                ) => (
+                  <button
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    type="button"
+                    onClick={() =>
+                      selectImage(
+                        index,
+                      )
+                    }
+                    className={`overflow-hidden rounded-lg border-2 ${
+                      index ===
+                      currentIndex
+                        ? "border-primary"
+                        : "border-transparent"
+                    }`}
+                    title={file.name}
+                  >
+                    <img
+                      src={
+                        previews[
+                          index
+                        ]
+                      }
+                      alt={file.name}
+                      className="aspect-square w-full object-cover"
+                    />
+                  </button>
+                ),
+              )}
             </div>
           )}
 
-          {/* Controls */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={removeCurrent}
+              onClick={
+                removeCurrent
+              }
               className="rounded-lg border px-4 py-2 text-sm"
             >
               Remove Current
@@ -370,45 +375,7 @@ export default function GeotagUploader({
               Clear All
             </button>
           </div>
-
-          {/* File list */}
-          <div className="rounded-xl border">
-            <div className="border-b px-4 py-3 text-sm font-semibold">
-              Selected Images ({files.length})
-            </div>
-
-            <div className="max-h-56 overflow-y-auto">
-              {files.map((file, index) => (
-                <button
-                  key={`${file.name}-${file.size}-${file.lastModified}-list`}
-                  type="button"
-                  onClick={() => selectImage(index)}
-                  className={`flex w-full items-center gap-3 border-b px-4 py-3 text-left last:border-b-0 ${
-                    index === currentIndex
-                      ? "bg-muted"
-                      : "hover:bg-muted/50"
-                  }`}
-                >
-                  <img
-                    src={previews[index]}
-                    alt=""
-                    className="h-12 w-12 rounded-md object-cover"
-                  />
-
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {file.name}
-                    </div>
-
-                    <div className="text-xs text-muted-foreground">
-                      {index + 1} of {files.length}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
