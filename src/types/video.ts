@@ -3,14 +3,6 @@ import type { OverlayPosition } from "./geotag";
 export type GeotagTiming = "beginning" | "end";
 
 export interface CropRect {
-  /**
-   * Normalized coordinates.
-   *
-   * x      = 0..1
-   * y      = 0..1
-   * width  = 0..1
-   * height = 0..1
-   */
   x: number;
   y: number;
   width: number;
@@ -55,19 +47,30 @@ export interface VideoSettings {
 
   /**
    * Crop rectangle.
-   *
-   * All values are normalized 0..1.
-   *
-   * Default:
-   *
-   * x = 0
-   * y = 0
-   * width = 1
-   * height = 1
-   *
-   * means the entire video.
    */
   crop: CropRect;
+
+  /**
+   * Starting clock time for the video.
+   *
+   * Example:
+   * "10:25:00"
+   *
+   * The exported video advances this clock
+   * with the video's elapsed time:
+   *
+   * 10:25:00
+   * 10:25:01
+   * 10:25:02
+   * ...
+   */
+  startClockTime: string;
+
+  /**
+   * If true, the timestamp advances automatically
+   * while the video plays.
+   */
+  movingTime: boolean;
 }
 
 export interface VideoItem {
@@ -133,12 +136,27 @@ export const DEFAULT_SETTINGS = (
   crop: {
     ...DEFAULT_CROP,
   },
+
+  /*
+   * Default starting time.
+   *
+   * Change this from the UI.
+   */
+  startClockTime: "10:25:00",
+
+  /*
+   * The clock moves with the video.
+   */
+  movingTime: true,
 });
 
 export function fmtTime(
   s: number,
 ): string {
-  if (!Number.isFinite(s) || s < 0) {
+  if (
+    !Number.isFinite(s) ||
+    s < 0
+  ) {
     s = 0;
   }
 
