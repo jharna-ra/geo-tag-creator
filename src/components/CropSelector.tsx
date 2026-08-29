@@ -36,9 +36,11 @@ interface DragStart {
   crop: CropRect;
 }
 
-const MIN_CROP = 0.05;
+const MIN_CROP = 0.03;
 
 export function CropSelector({
+  videoWidth,
+  videoHeight,
   crop,
   onChange,
 }: CropSelectorProps) {
@@ -50,6 +52,16 @@ export function CropSelector({
 
   const dragStart =
     useRef<DragStart | null>(null);
+
+  /*
+   * Keep the component aware of the real video
+   * aspect ratio. This is important for the
+   * gallery-style rectangular crop.
+   */
+  const videoAspect =
+    videoHeight > 0
+      ? videoWidth / videoHeight
+      : 1;
 
   const getRelativePosition =
     useCallback(
@@ -107,7 +119,10 @@ export function CropSelector({
   ) =>
     Math.min(
       max,
-      Math.max(min, value),
+      Math.max(
+        min,
+        value,
+      ),
     );
 
   const startDrag = (
@@ -118,7 +133,9 @@ export function CropSelector({
     event.stopPropagation();
 
     const point =
-      getRelativePosition(event);
+      getRelativePosition(
+        event,
+      );
 
     if (!point) {
       return;
@@ -138,7 +155,7 @@ export function CropSelector({
         event.pointerId,
       );
     } catch {
-      // Ignore pointer capture errors.
+      // Pointer capture is optional.
     }
   };
 
@@ -153,7 +170,9 @@ export function CropSelector({
         }
 
         const point =
-          getRelativePosition(event);
+          getRelativePosition(
+            event,
+          );
 
         if (!point) {
           return;
@@ -174,207 +193,305 @@ export function CropSelector({
           start.point.y;
 
         const right =
-          base.x + base.width;
+          base.x +
+          base.width;
 
         const bottom =
-          base.y + base.height;
+          base.y +
+          base.height;
 
         let next: CropRect = {
           ...base,
         };
 
-        /* MOVE */
+        /*
+         * MOVE
+         */
+        if (
+          dragMode ===
+          "move"
+        ) {
+          next.x =
+            clamp(
+              base.x + dx,
+              0,
+              1 -
+                base.width,
+            );
 
-        if (dragMode === "move") {
-          next.x = clamp(
-            base.x + dx,
-            0,
-            1 - base.width,
-          );
-
-          next.y = clamp(
-            base.y + dy,
-            0,
-            1 - base.height,
-          );
+          next.y =
+            clamp(
+              base.y + dy,
+              0,
+              1 -
+                base.height,
+            );
         }
 
-        /* NORTH-WEST */
-
-        if (dragMode === "nw") {
+        /*
+         * NORTH-WEST
+         */
+        if (
+          dragMode ===
+          "nw"
+        ) {
           const newX =
             clamp(
               base.x + dx,
               0,
-              right - MIN_CROP,
+              right -
+                MIN_CROP,
             );
 
           const newY =
             clamp(
               base.y + dy,
               0,
-              bottom - MIN_CROP,
+              bottom -
+                MIN_CROP,
             );
 
-          next.x = newX;
-          next.y = newY;
+          next.x =
+            newX;
+
+          next.y =
+            newY;
+
           next.width =
-            right - newX;
+            right -
+            newX;
+
           next.height =
-            bottom - newY;
+            bottom -
+            newY;
         }
 
-        /* NORTH */
-
-        if (dragMode === "n") {
+        /*
+         * NORTH
+         */
+        if (
+          dragMode ===
+          "n"
+        ) {
           const newY =
             clamp(
               base.y + dy,
               0,
-              bottom - MIN_CROP,
+              bottom -
+                MIN_CROP,
             );
 
-          next.y = newY;
+          next.y =
+            newY;
+
           next.height =
-            bottom - newY;
+            bottom -
+            newY;
         }
 
-        /* NORTH-EAST */
-
-        if (dragMode === "ne") {
+        /*
+         * NORTH-EAST
+         */
+        if (
+          dragMode ===
+          "ne"
+        ) {
           const newY =
             clamp(
               base.y + dy,
               0,
-              bottom - MIN_CROP,
+              bottom -
+                MIN_CROP,
             );
 
           const newRight =
             clamp(
               right + dx,
-              base.x + MIN_CROP,
+              base.x +
+                MIN_CROP,
               1,
             );
 
-          next.y = newY;
+          next.y =
+            newY;
+
           next.height =
-            bottom - newY;
+            bottom -
+            newY;
+
           next.width =
-            newRight - base.x;
+            newRight -
+            base.x;
         }
 
-        /* WEST */
-
-        if (dragMode === "w") {
+        /*
+         * WEST
+         */
+        if (
+          dragMode ===
+          "w"
+        ) {
           const newX =
             clamp(
               base.x + dx,
               0,
-              right - MIN_CROP,
+              right -
+                MIN_CROP,
             );
 
-          next.x = newX;
+          next.x =
+            newX;
+
           next.width =
-            right - newX;
+            right -
+            newX;
         }
 
-        /* EAST */
-
-        if (dragMode === "e") {
+        /*
+         * EAST
+         */
+        if (
+          dragMode ===
+          "e"
+        ) {
           const newRight =
             clamp(
               right + dx,
-              base.x + MIN_CROP,
+              base.x +
+                MIN_CROP,
               1,
             );
 
           next.width =
-            newRight - base.x;
+            newRight -
+            base.x;
         }
 
-        /* SOUTH-WEST */
-
-        if (dragMode === "sw") {
+        /*
+         * SOUTH-WEST
+         */
+        if (
+          dragMode ===
+          "sw"
+        ) {
           const newX =
             clamp(
               base.x + dx,
               0,
-              right - MIN_CROP,
+              right -
+                MIN_CROP,
             );
 
           const newBottom =
             clamp(
               bottom + dy,
-              base.y + MIN_CROP,
+              base.y +
+                MIN_CROP,
               1,
             );
 
-          next.x = newX;
+          next.x =
+            newX;
+
           next.width =
-            right - newX;
+            right -
+            newX;
+
           next.height =
-            newBottom - base.y;
+            newBottom -
+            base.y;
         }
 
-        /* SOUTH */
-
-        if (dragMode === "s") {
+        /*
+         * SOUTH
+         */
+        if (
+          dragMode ===
+          "s"
+        ) {
           const newBottom =
             clamp(
               bottom + dy,
-              base.y + MIN_CROP,
+              base.y +
+                MIN_CROP,
               1,
             );
 
           next.height =
-            newBottom - base.y;
+            newBottom -
+            base.y;
         }
 
-        /* SOUTH-EAST */
-
-        if (dragMode === "se") {
+        /*
+         * SOUTH-EAST
+         */
+        if (
+          dragMode ===
+          "se"
+        ) {
           const newRight =
             clamp(
               right + dx,
-              base.x + MIN_CROP,
+              base.x +
+                MIN_CROP,
               1,
             );
 
           const newBottom =
             clamp(
               bottom + dy,
-              base.y + MIN_CROP,
+              base.y +
+                MIN_CROP,
               1,
             );
 
           next.width =
-            newRight - base.x;
+            newRight -
+            base.x;
 
           next.height =
-            newBottom - base.y;
+            newBottom -
+            base.y;
         }
 
-        onChange({
-          x: clamp(
-            next.x,
-            0,
-            1,
-          ),
-          y: clamp(
-            next.y,
-            0,
-            1,
-          ),
-          width: clamp(
+        /*
+         * Final safety clamp.
+         */
+        const safeWidth =
+          clamp(
             next.width,
             MIN_CROP,
             1,
-          ),
-          height: clamp(
+          );
+
+        const safeHeight =
+          clamp(
             next.height,
             MIN_CROP,
             1,
-          ),
+          );
+
+        const safeX =
+          clamp(
+            next.x,
+            0,
+            1 -
+              safeWidth,
+          );
+
+        const safeY =
+          clamp(
+            next.y,
+            0,
+            1 -
+              safeHeight,
+          );
+
+        onChange({
+          x: safeX,
+          y: safeY,
+          width: safeWidth,
+          height: safeHeight,
         });
       },
       [
@@ -406,13 +523,20 @@ export function CropSelector({
   ]);
 
   useEffect(() => {
-    const stopDragging = () => {
-      setDragMode(null);
-      dragStart.current = null;
-    };
+    const stopDragging =
+      () => {
+        setDragMode(null);
+        dragStart.current =
+          null;
+      };
 
     window.addEventListener(
       "pointerup",
+      stopDragging,
+    );
+
+    window.addEventListener(
+      "pointercancel",
       stopDragging,
     );
 
@@ -421,126 +545,277 @@ export function CropSelector({
         "pointerup",
         stopDragging,
       );
+
+      window.removeEventListener(
+        "pointercancel",
+        stopDragging,
+      );
     };
   }, []);
 
+  /*
+   * Prevent accidental browser dragging/
+   * selection while manipulating the crop.
+   */
+  useEffect(() => {
+    const element =
+      containerRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const previous =
+      element.style.touchAction;
+
+    element.style.touchAction =
+      "none";
+
+    return () => {
+      element.style.touchAction =
+        previous;
+    };
+  }, []);
+
+  /*
+   * The actual video aspect ratio is retained
+   * here so the crop overlay remains rectangular
+   * and predictable for portrait/landscape videos.
+   */
+  void videoAspect;
+
   const handleClass =
-    "absolute z-30 h-3 w-3 rounded-full border-2 border-white bg-black shadow cursor-pointer";
+    [
+      "absolute",
+      "z-40",
+      "h-3.5",
+      "w-3.5",
+      "rounded-full",
+      "border-2",
+      "border-white",
+      "bg-black",
+      "shadow-lg",
+      "cursor-pointer",
+      "touch-none",
+    ].join(" ");
+
+  const left =
+    crop.x * 100;
+
+  const top =
+    crop.y * 100;
+
+  const width =
+    crop.width * 100;
+
+  const height =
+    crop.height * 100;
 
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 z-20 touch-none"
+      className="absolute inset-0 z-20 overflow-hidden select-none touch-none"
+      style={{
+        userSelect: "none",
+        WebkitUserSelect:
+          "none",
+        WebkitTouchCallout:
+          "none",
+      }}
     >
-      {/* Outside darkening */}
+      {/* =================================================
+          OUTSIDE DARKENING
+      ================================================= */}
+
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "rgba(0,0,0,0.55)",
-          clipPath: `polygon(
-            0 0,
-            100% 0,
-            100% 100%,
-            0 100%,
-            0 0,
-            ${crop.x * 100}% ${crop.y * 100}%,
-            ${crop.x * 100}% ${(crop.y + crop.height) * 100}%,
-            ${(crop.x + crop.width) * 100}% ${(crop.y + crop.height) * 100}%,
-            ${(crop.x + crop.width) * 100}% ${crop.y * 100}%,
-            ${crop.x * 100}% ${crop.y * 100}%
-          )`,
-          clipRule: "evenodd",
+            "rgba(0,0,0,0.58)",
+
+          clipPath:
+            `polygon(
+              0 0,
+              100% 0,
+              100% 100%,
+              0 100%,
+              0 0,
+              ${left}% ${top}%,
+              ${left}% ${top + height}%,
+              ${left + width}% ${top + height}%,
+              ${left + width}% ${top}%,
+              ${left}% ${top}%
+            )`,
+
+          clipRule:
+            "evenodd",
         }}
       />
 
-      {/* Crop rectangle */}
+      {/* =================================================
+          CROP RECTANGLE
+      ================================================= */}
+
       <div
-        className="absolute z-20 border-2 border-white"
+        className="absolute z-30 border-2 border-white bg-transparent"
         style={{
-          left: `${crop.x * 100}%`,
-          top: `${crop.y * 100}%`,
-          width: `${crop.width * 100}%`,
-          height: `${crop.height * 100}%`,
+          left:
+            `${left}%`,
+          top:
+            `${top}%`,
+          width:
+            `${width}%`,
+          height:
+            `${height}%`,
+          boxShadow:
+            "0 0 0 1px rgba(0,0,0,0.55), 0 0 18px rgba(0,0,0,0.35)",
+          touchAction:
+            "none",
         }}
-        onPointerDown={(event) =>
+        onPointerDown={(
+          event,
+        ) =>
           startDrag(
             event,
             "move",
           )
         }
       >
-        {/* Grid */}
+        {/* =================================================
+            GALLERY-STYLE GRID
+        ================================================= */}
+
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-1/3 top-0 h-full border-l border-white/40" />
-          <div className="absolute left-2/3 top-0 h-full border-l border-white/40" />
-          <div className="absolute top-1/3 left-0 w-full border-t border-white/40" />
-          <div className="absolute top-2/3 left-0 w-full border-t border-white/40" />
+          <div
+            className="absolute left-1/3 top-0 h-full border-l border-white/45"
+          />
+
+          <div
+            className="absolute left-2/3 top-0 h-full border-l border-white/45"
+          />
+
+          <div
+            className="absolute top-1/3 left-0 w-full border-t border-white/45"
+          />
+
+          <div
+            className="absolute top-2/3 left-0 w-full border-t border-white/45"
+          />
         </div>
 
-        {/* NW */}
+        {/* =================================================
+            CORNER HANDLES
+        ================================================= */}
+
         <div
           className={`${handleClass} -left-2 -top-2 cursor-nwse-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "nw")
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "nw",
+            )
           }
         />
 
-        {/* N */}
-        <div
-          className={`${handleClass} left-1/2 -top-2 -translate-x-1/2 cursor-ns-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "n")
-          }
-        />
-
-        {/* NE */}
         <div
           className={`${handleClass} -right-2 -top-2 cursor-nesw-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "ne")
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "ne",
+            )
           }
         />
 
-        {/* W */}
         <div
-          className={`${handleClass} -left-2 top-1/2 -translate-y-1/2 cursor-ew-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "w")
+          className={`${handleClass} -left-2 -bottom-2 cursor-nesw-resize`}
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "sw",
+            )
           }
         />
 
-        {/* E */}
+        <div
+          className={`${handleClass} -right-2 -bottom-2 cursor-nwse-resize`}
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "se",
+            )
+          }
+        />
+
+        {/* =================================================
+            EDGE HANDLES
+        ================================================= */}
+
+        <div
+          className={`${handleClass} left-1/2 -top-2 -translate-x-1/2 cursor-ns-resize`}
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "n",
+            )
+          }
+        />
+
         <div
           className={`${handleClass} -right-2 top-1/2 -translate-y-1/2 cursor-ew-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "e")
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "e",
+            )
           }
         />
 
-        {/* SW */}
         <div
-          className={`${handleClass} -bottom-2 -left-2 cursor-nesw-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "sw")
+          className={`${handleClass} left-1/2 -bottom-2 -translate-x-1/2 cursor-ns-resize`}
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "s",
+            )
           }
         />
 
-        {/* S */}
         <div
-          className={`${handleClass} -bottom-2 left-1/2 -translate-x-1/2 cursor-ns-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "s")
+          className={`${handleClass} -left-2 top-1/2 -translate-y-1/2 cursor-ew-resize`}
+          onPointerDown={(
+            event,
+          ) =>
+            startDrag(
+              event,
+              "w",
+            )
           }
         />
 
-        {/* SE */}
+        {/* =================================================
+            CENTER MOVE INDICATOR
+        ================================================= */}
+
         <div
-          className={`${handleClass} -bottom-2 -right-2 cursor-nwse-resize`}
-          onPointerDown={(event) =>
-            startDrag(event, "se")
-          }
-        />
+          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 bg-black/30 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity"
+        >
+          Move
+        </div>
       </div>
     </div>
   );
